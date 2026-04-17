@@ -1,0 +1,5 @@
+{
+  "name": "SAP S/4HANA GAP Estimator",
+  "description": "Calculadora de estimativas para desenvolvimentos SAP S/4HANA com sugestões de IA.",
+  "requestFramePermissions": []
+}

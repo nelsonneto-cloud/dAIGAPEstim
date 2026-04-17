@@ -1,0 +1,122 @@
+export type Complexity = 'PP' | 'P' | 'M' | 'G' | 'GG';
+
+export interface Metric {
+  id: string;
+  solicitacao: string; // NOVO or MODIFICAÇÃO
+  tipo: string; // e.g., Smart Forms, AdobeForms
+  chave: string; // e.g., NOVO / Smart Forms / PP
+  complexidade: Complexity;
+  esforcoDev: number;
+  esforcoFuncional: number;
+  testesUnitarios: number;
+  testesIntegrados: number;
+  documentacao: number;
+  deploy: number;
+  total: number;
+  pontosMaximos?: number;
+}
+
+export interface EstimationItem {
+  id: string;
+  titulo?: string;
+  scopeItem: string;
+  novoOuExistente: 'NOVO' | 'MODIFICAÇÃO';
+  tipoSolicitacao: string; // This corresponds to "Solicitação" in the table
+  funcional: string;
+  tecnologia: string;
+  descricao: string;
+  severidade: 'Baixa' | 'Média' | 'Alta' | 'Crítica' | 'Essencial';
+  complexityScore?: number;
+  complexityParams?: ComplexityParameters;
+  observacao: string;
+  complexidade: Complexity;
+  
+  // Calculated fields
+  esforcoDev: number;
+  testesUnitarios: number;
+  esforcoFuncional: number;
+  testesIntegrados: number;
+  documentacao: number;
+  deploy: number;
+  total: number;
+
+  // Strategic Enhancements
+  riscoFsIncompleta?: boolean; // +20%
+  riscoDependenciaTerceiros?: boolean; // +10h
+  riscoTecnologiaNova?: boolean; // +30%
+  horasFSReview: number;
+  horasSuporteTMS: number;
+  horasSuporteUAT: number;
+
+  // External comparison
+  esforcoExterno?: number;
+  cleanCoreSuggestion?: string;
+
+  // AI Documentation
+  especificacaoFuncional?: string;
+  especificacaoTecnica?: string;
+  analiseIA?: string;
+  aiSugestaoHoras?: number;
+  ajusteConfirmado?: boolean;
+}
+
+export interface ProjectInfo {
+  nome: string;
+  gerente: string;
+  data: string;
+  fatorCalibracao: number; // Global multiplier (e.g. 1.2)
+}
+
+export interface UserSettings {
+  geminiApiKey?: string;
+}
+
+export interface ComplexityParameters {
+  tabelasAcessadas: number;         // P: 1.0
+  tabelasAcessoSimples: number;     // P: 0.5
+  tabelasCriadas: number;           // P: 1.0
+  camposCriados: number;            // P: 0.25
+  indicesCriados: number;           // P: 1.0
+  sm30Criado: number;               // P: 0.5 (yes/no based count, but could be multiplier)
+  dbLogico: boolean;                // P: 1 se sim
+  arquivosExternos: number;         // P: 1.0
+  
+  // Relacionamento (mutually exclusive or combined)
+  umaSelecaoRetornaTodas: boolean;  // 1
+  algumRelacionamento: boolean;     // 2
+  infoLegado: boolean;              // 10
+  
+  // Navegação
+  usaWrite: boolean;                // 3
+  usaALV: boolean;                  // 1
+  niveisDrillDown: number;          // 1
+
+  // Layout
+  layoutsDinamicos: boolean;        // 3
+  layoutsDrillDown: number;         // 2
+
+  // Campos
+  campos: number;                   // 0.5
+  camposConversao: number;          // 0.5
+  camposCalculo: number;            // 0.5
+  camposValidacao: number;          // 0.5
+
+  // Rotinas e Outras Funcionalidades
+  rotinasExternas: number;          // 3
+  funcaoSimulacao: number;          // 4
+  subscreens: number;               // 3
+  copiaProgramaStd: boolean;        // 2
+  batchInput: number;               // 2
+  criacaoArquivoExterno: number;    // 1
+}
+
+export type Theme = 'system' | 'light' | 'dark';
+
+declare global {
+  interface Window {
+    aistudio: {
+      hasSelectedApiKey: () => Promise<boolean>;
+      openSelectKey: () => Promise<void>;
+    };
+  }
+}

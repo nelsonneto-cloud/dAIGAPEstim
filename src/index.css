@@ -1,0 +1,53 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Century Gothic", "Apple Gothic", "Futura", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Cormorant Garamond", serif;
+  
+  --color-delaware-teal: #72C4BF;
+  --color-delaware-red: #EF463C;
+  --color-delaware-gray: #3C3C3C;
+
+  /* Overrides for html2canvas to prevent oklch parsing errors */
+  --color-white: #ffffff;
+  --color-black: #000000;
+  --color-transparent: transparent;
+  --color-gray-50: #f9fafb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-200: #e5e7eb;
+  --color-gray-300: #d1d5db;
+  --color-gray-400: #9ca3af;
+  --color-gray-500: #6b7280;
+  --color-gray-600: #4b5563;
+  --color-gray-700: #374151;
+  --color-gray-800: #1f2937;
+  --color-gray-900: #111827;
+  
+  --color-blue-500: #3b82f6;
+  --color-green-500: #10b981;
+  --color-red-500: #ef4444;
+  --color-yellow-500: #f59e0b;
+  --color-orange-500: #f97316;
+}
+
+@layer base {
+  .prose h1 { @apply text-2xl font-bold mb-4; color: #111827; }
+  .prose h2 { @apply text-xl font-bold mb-3 mt-6; color: #1f2937; }
+  .prose h3 { @apply text-lg font-bold mb-2 mt-4; color: #1f2937; }
+  .prose p { @apply mb-4 leading-relaxed; color: #374151; }
+  .prose ul { @apply list-disc pl-5 mb-4 space-y-2; color: #374151; }
+  .prose li { color: #374151; }
+  .prose strong { @apply font-bold; color: #111827; }
+  .prose code { @apply px-1 rounded font-mono; background-color: #f3f4f6; color: #ea580c; }
+  .prose table { @apply w-full text-left border-collapse mb-4; }
+  .prose th { @apply border-b py-2 font-semibold; border-color: #e5e7eb; color: #1f2937; }
+  .prose td { @apply border-b py-2; border-color: #f3f4f6; color: #374151; }
+}
+
+@layer utilities {
+  .html2pdf__page-break {
+    page-break-before: always;
+    page-break-after: always;
+  }
+}
+
