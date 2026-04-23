@@ -74,14 +74,15 @@ export async function classifyAndAnalyzeCleanCore(
               Tipos de solicitações disponíveis na nossa matriz: ${availableTypes.join(", ")}
               
               Sua tarefa:
-              1. Identifique qual dos tipos disponíveis melhor se encaixa nessa descrição. Retorne APENAS o nome do tipo na primeira linha entre colchetes. Ex: [Report ABAP]
-              2. Analise a diferença entre o esforço externo (${externalEffort}h) e o calculado (${calculatedEffort}h).
-              3. Sugira uma estimativa revisada em horas para este GAP caso os parâmetros da matriz pareçam inadequados para a complexidade técnica descrita.
-              4. Sugira a melhor abordagem seguindo o conceito SAP Clean Core (ex: usar APIs standard, BTP, Key User Extensibility, etc.).
-              
-              Formato de resposta OBRIGATÓRIO (não use outros textos):
+              1. Identifique qual dos tipos disponíveis melhor se encaixa nessa descrição.
+              2. Classifique a complexidade técnica do desenvolvimento: PP (muito simples), P (simples), M (médio), G (grande/complexo), GG (muito complexo).
+              3. Sugira uma estimativa revisada em horas para este GAP.
+              4. Sugira a melhor abordagem seguindo o conceito SAP Clean Core.
+
+              Formato de resposta OBRIGATÓRIO (exatamente nesta ordem, sem texto adicional):
               [NOME_DO_TIPO]
-              [SUGESTÃO_HORAS: (número aqui)]
+              [COMPLEXIDADE: PP|P|M|G|GG]
+              [SUGESTÃO_HORAS: (número)]
               [ANÁLISE EM MARKDOWN]`
             }
           ]
@@ -92,7 +93,14 @@ export async function classifyAndAnalyzeCleanCore(
     const text = response.text || "";
     const lines = text.split("\n").filter(l => l.trim().length > 0);
     const type = lines[0].replace(/\[|\]/g, "").trim();
-    
+
+    let complexity: string | undefined = undefined;
+    const complexityLine = lines.find(l => l.includes("COMPLEXIDADE:"));
+    if (complexityLine) {
+      const match = complexityLine.match(/\b(PP|P|M|G|GG)\b/);
+      if (match) complexity = match[1];
+    }
+
     let suggestedHours: number | undefined = undefined;
     const hoursLine = lines.find(l => l.includes("SUGESTÃO_HORAS"));
     if (hoursLine) {
@@ -100,10 +108,10 @@ export async function classifyAndAnalyzeCleanCore(
       if (match) suggestedHours = parseFloat(match[0]);
     }
 
-    const analysisStartIndex = hoursLine ? lines.indexOf(hoursLine) + 1 : 1;
+    const analysisStartIndex = hoursLine ? lines.indexOf(hoursLine) + 1 : (complexityLine ? lines.indexOf(complexityLine) + 1 : 1);
     const analysis = lines.slice(analysisStartIndex).join("\n").trim();
 
-    return { type, analysis, suggestedHours };
+    return { type, complexity, analysis, suggestedHours };
   } catch (error) {
     console.error("Error in classifyAndAnalyzeCleanCore:", error);
     throw error;

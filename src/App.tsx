@@ -288,12 +288,13 @@ export default function App() {
         // AI analysis runs in the background after items are displayed
         newItems.forEach(item => {
           classifyAndAnalyzeCleanCore(item.descricao, item.esforcoExterno, item.total, uniqueTipos)
-            .then(({ type, analysis, suggestedHours }) => {
+            .then(({ type, complexity, analysis, suggestedHours }) => {
               setItems(prev => prev.map(it => {
                 if (it.id !== item.id) return it;
                 const updated = {
                   ...it,
                   tipoSolicitacao: uniqueTipos.includes(type) ? type : it.tipoSolicitacao,
+                  complexidade: (['PP','P','M','G','GG'].includes(complexity || '') ? complexity : it.complexidade) as any,
                   aiSugestaoHoras: suggestedHours,
                   cleanCoreSuggestion: analysis,
                 };
