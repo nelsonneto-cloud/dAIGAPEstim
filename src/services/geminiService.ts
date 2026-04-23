@@ -13,7 +13,7 @@ export async function getAISuggestions(items: EstimationItem[], metrics: Metric[
   try {
     const ai = getAIInstance();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",
@@ -60,7 +60,7 @@ export async function classifyAndAnalyzeCleanCore(
   try {
     const ai = getAIInstance();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",
@@ -114,7 +114,7 @@ export async function generateFunctionalSpec(item: EstimationItem) {
   try {
     const ai = getAIInstance();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",
@@ -163,7 +163,7 @@ export async function generateTechnicalSpec(item: EstimationItem) {
   try {
     const ai = getAIInstance();
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",
@@ -302,7 +302,7 @@ Retorne EXATAMENTE as seguintes propriedades preenchidas com tipo number (int) o
   `;
 
     const response = await ai.models.generateContent({
-      model: "gemini-3-flash-preview",
+      model: "gemini-2.0-flash",
       contents: [
         {
           role: "user",

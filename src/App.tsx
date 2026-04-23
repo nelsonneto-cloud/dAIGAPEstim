@@ -149,29 +149,77 @@ export default function App() {
   const uniqueTipos = useMemo(() => Array.from(new Set(metrics.map(m => m.tipo))).sort(), [metrics]);
   const uniqueSolicitacoes = useMemo(() => Array.from(new Set(metrics.map(m => m.solicitacao))).sort(), [metrics]);
 
-  const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
 
     setIsUploading(true);
     const reader = new FileReader();
-    reader.onload = async (e) => {
+
+    reader.onerror = () => {
+      console.error("FileReader error");
+      alert("Erro ao ler o arquivo. Tente novamente.");
+      setIsUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    };
+
+    reader.onload = (e) => {
       try {
         const data = new Uint8Array(e.target?.result as ArrayBuffer);
         const workbook = XLSX.read(data, { type: 'array' });
         const firstSheetName = workbook.SheetNames[0];
         const worksheet = workbook.Sheets[firstSheetName];
-        
+
         const jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1 }) as any[][];
-        if (jsonData.length < 2) return;
+        if (jsonData.length < 2) {
+          alert("O arquivo está vazio ou não contém dados além do cabeçalho.");
+          return;
+        }
 
         const headers = jsonData[0];
+
+        // Support Portuguese and English column names
         const descIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('descri'));
-        const effortIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('esfor') && h?.toLowerCase().includes('hora'));
-        const idIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('id'));
-        const titleIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('título') || h?.toLowerCase().includes('titulo'));
-        const functionalIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('função atribuída') || h?.toLowerCase().includes('funcao atribuida'));
-        const priorityIdx = headers.findIndex((h: string) => h?.toLowerCase().includes('prioridade'));
+        const effortIdx = headers.findIndex((h: string) =>
+          (h?.toLowerCase().includes('esfor') && h?.toLowerCase().includes('hora')) ||
+          (h?.toLowerCase().includes('effort') && h?.toLowerCase().includes('hour'))
+        );
+        const idIdx = headers.findIndex((h: string) => h?.trim().toLowerCase() === 'id');
+        const titleIdx = headers.findIndex((h: string) =>
+          h?.toLowerCase() === 'title' ||
+          h?.toLowerCase().includes('título') ||
+          h?.toLowerCase().includes('titulo')
+        );
+        const functionalIdx = headers.findIndex((h: string) =>
+          h?.toLowerCase().includes('função atribuída') ||
+          h?.toLowerCase().includes('funcao atribuida') ||
+          h?.toLowerCase().includes('assigned role')
+        );
+        const priorityIdx = headers.findIndex((h: string) =>
+          h?.toLowerCase().includes('prioridade') ||
+          h?.toLowerCase() === 'priority'
+        );
+
+        if (descIdx === -1) {
+          alert("Coluna de descrição não encontrada. Verifique se o arquivo contém uma coluna 'Description' ou 'Descrição'.");
+          return;
+        }
+
+        // Strip HTML tags and return plain text
+        const stripHtml = (html: string): string => {
+          try {
+            const doc = new DOMParser().parseFromString(html, 'text/html');
+            return (doc.body.textContent || '').replace(/\s+/g, ' ').trim();
+          } catch {
+            return html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+          }
+        };
+
+        // Extract priority embedded in HTML description (e.g. "Prioridade: Essencial")
+        const extractPriorityFromHtml = (html: string): string => {
+          const match = html.match(/Prioridade[:\s]*([^\n<&\r]+)/i);
+          return match ? match[1].trim() : '';
+        };
 
         const newItems: EstimationItem[] = [];
 
@@ -179,15 +227,21 @@ export default function App() {
           const row = jsonData[i];
           if (!row[descIdx]) continue;
 
-          const description = String(row[descIdx]);
+          const rawDescription = String(row[descIdx]);
+          const description = stripHtml(rawDescription);
+          if (!description) continue;
+
           const externalEffortStr = String(row[effortIdx] || "0").replace(',', '.').replace(/[^0-9.]/g, '');
           const externalEffort = parseFloat(externalEffortStr) || 0;
-          const scopeItem = String(row[idIdx] || `GAP-${i}`);
-          const titulo = String(row[titleIdx] || "");
+          const scopeItem = String(row[idIdx !== -1 ? idIdx : 1] || `GAP-${i}`);
+          const titulo = String(row[titleIdx !== -1 ? titleIdx : 0] || "");
           const funcional = String(row[functionalIdx] || "");
-          const priorityRaw = String(row[priorityIdx] || "Média");
 
-          // Map priority to severity
+          // Priority: dedicated column first, then extract from description HTML
+          const priorityRaw = priorityIdx !== -1
+            ? String(row[priorityIdx] || "")
+            : extractPriorityFromHtml(rawDescription);
+
           let severidade: EstimationItem['severidade'] = 'Média';
           if (priorityRaw.toLowerCase().includes('alta')) severidade = 'Alta';
           else if (priorityRaw.toLowerCase().includes('baixa')) severidade = 'Baixa';
@@ -196,7 +250,7 @@ export default function App() {
 
           const item: EstimationItem = {
             id: crypto.randomUUID(),
-            titulo: titulo,
+            titulo: titulo || description.substring(0, 80),
             scopeItem: scopeItem,
             novoOuExistente: 'NOVO',
             tipoSolicitacao: uniqueTipos[0] || 'Report ABAP',
@@ -219,45 +273,42 @@ export default function App() {
             horasSuporteUAT: 0
           };
 
-          try {
-            const { type, analysis, suggestedHours } = await classifyAndAnalyzeCleanCore(
-              description, 
-              externalEffort, 
-              0,
-              uniqueTipos
-            );
-            
-            item.tipoSolicitacao = uniqueTipos.includes(type) ? type : item.tipoSolicitacao;
-            item.aiSugestaoHoras = suggestedHours;
-            updateItemCalculations(item, metrics);
-            
-            const finalAnalysis = await classifyAndAnalyzeCleanCore(
-              description,
-              externalEffort,
-              item.total,
-              uniqueTipos
-            );
-            
-            item.cleanCoreSuggestion = finalAnalysis.analysis;
-            item.aiSugestaoHoras = finalAnalysis.suggestedHours; // Update with more accurate calculation if needed
-            setAiAnalysis(prev => ({ ...prev, [item.id]: finalAnalysis.analysis }));
-          } catch (err: any) {
-            console.error("AI Classification error:", err);
-            if (err.message === "API_KEY_MISSING") {
-              if (window.aistudio) {
-                handleSelectKey();
-              }
-              setAiAnalysis(prev => ({ ...prev, [item.id]: "Configuração de IA necessária." }));
-            } else {
-              setAiAnalysis(prev => ({ ...prev, [item.id]: "Erro na análise de IA." }));
-            }
-            updateItemCalculations(item, metrics);
-          }
-
+          updateItemCalculations(item, metrics);
           newItems.push(item);
         }
 
+        if (newItems.length === 0) {
+          alert("Nenhuma linha válida encontrada. Verifique se a coluna de descrição está preenchida.");
+          return;
+        }
+
         setItems(prev => [...prev, ...newItems]);
+
+        // AI analysis runs in the background after items are displayed
+        newItems.forEach(item => {
+          classifyAndAnalyzeCleanCore(item.descricao, item.esforcoExterno, item.total, uniqueTipos)
+            .then(({ type, analysis, suggestedHours }) => {
+              setItems(prev => prev.map(it => {
+                if (it.id !== item.id) return it;
+                const updated = {
+                  ...it,
+                  tipoSolicitacao: uniqueTipos.includes(type) ? type : it.tipoSolicitacao,
+                  aiSugestaoHoras: suggestedHours,
+                  cleanCoreSuggestion: analysis,
+                };
+                updateItemCalculations(updated, metrics);
+                return updated;
+              }));
+              setAiAnalysis(prev => ({ ...prev, [item.id]: analysis }));
+            })
+            .catch((err: any) => {
+              console.error("AI Classification error:", err);
+              if (err.message === "API_KEY_MISSING" && window.aistudio) {
+                handleSelectKey();
+              }
+              setAiAnalysis(prev => ({ ...prev, [item.id]: "Erro na análise de IA." }));
+            });
+        });
       } catch (error) {
         console.error("Error parsing file:", error);
         alert("Erro ao processar o arquivo. Verifique se o formato está correto.");
@@ -266,6 +317,7 @@ export default function App() {
         if (fileInputRef.current) fileInputRef.current.value = '';
       }
     };
+
     reader.readAsArrayBuffer(file);
   };
 
