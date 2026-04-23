@@ -16,6 +16,16 @@ import {
 } from 'recharts';
 import { addDays, isWeekend, format, addBusinessDays } from 'date-fns';
 
+const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 3, baseDelay = 3000): Promise<T> => {
+  for (let i = 0; i < retries; i++) {
+    try { return await fn(); } catch (err: any) {
+      if (i === retries - 1) throw err;
+      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, i)));
+    }
+  }
+  throw new Error('Max retries exceeded');
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<'calculator' | 'settings' | 'dashboard'>('calculator');
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -92,6 +102,8 @@ export default function App() {
   };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
+  const [isBatchComplexity, setIsBatchComplexity] = useState(false);
+  const [batchComplexityProgress, setBatchComplexityProgress] = useState({ current: 0, total: 0 });
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<EstimationItem | null>(null);
   const [hasSelectedKey, setHasSelectedKey] = useState(true);
@@ -287,7 +299,7 @@ export default function App() {
 
         // AI analysis runs in the background after items are displayed
         newItems.forEach(item => {
-          classifyAndAnalyzeCleanCore(item.descricao, item.esforcoExterno, item.total, uniqueTipos)
+          retryWithBackoff(() => classifyAndAnalyzeCleanCore(item.descricao, item.esforcoExterno, item.total, uniqueTipos))
             .then(({ type, complexity, analysis, suggestedHours }) => {
               setItems(prev => prev.map(it => {
                 if (it.id !== item.id) return it;
@@ -440,6 +452,45 @@ export default function App() {
     }
   };
 
+  const handleBatchComplexity = async () => {
+    const toProcess = items.filter(i => !i.complexityScore);
+    if (toProcess.length === 0) { alert('Todos os itens já têm complexidade calculada.'); return; }
+    setIsBatchComplexity(true);
+    setBatchComplexityProgress({ current: 0, total: toProcess.length });
+
+    const sortedLevels = [
+      { level: 'PP', max: metrics.find(m => m.complexidade === 'PP')?.pontosMaximos || 10 },
+      { level: 'P',  max: metrics.find(m => m.complexidade === 'P')?.pontosMaximos  || 20 },
+      { level: 'M',  max: metrics.find(m => m.complexidade === 'M')?.pontosMaximos  || 40 },
+      { level: 'G',  max: metrics.find(m => m.complexidade === 'G')?.pontosMaximos  || 60 },
+      { level: 'GG', max: metrics.find(m => m.complexidade === 'GG')?.pontosMaximos || 110 },
+    ].sort((a, b) => a.max - b.max);
+
+    for (const item of toProcess) {
+      try {
+        const params = await retryWithBackoff(() =>
+          analyzeComplexityParameters(item.descricao, item.especificacaoFuncional || '')
+        );
+        const score = calculateComplexityScore(params);
+        let newComplexity: Complexity = 'GG';
+        for (const lvl of sortedLevels) {
+          if (score <= lvl.max) { newComplexity = lvl.level as Complexity; break; }
+        }
+        setItems(prev => prev.map(i => {
+          if (i.id !== item.id) return i;
+          const updated = { ...i, complexityParams: params, complexityScore: score, complexidade: newComplexity };
+          updateItemCalculations(updated, metrics);
+          return updated;
+        }));
+      } catch (err) {
+        console.error(`Complexidade lote erro ${item.id}:`, err);
+      } finally {
+        setBatchComplexityProgress(prev => ({ ...prev, current: prev.current + 1 }));
+      }
+    }
+    setIsBatchComplexity(false);
+  };
+
   const saveItem = () => {
     if (!editingItem) return;
     
@@ -512,17 +563,17 @@ export default function App() {
           }
           
           try {
-            const analysis = await getAISuggestions([currentItem], metrics);
-            setItems(prev => prev.map(i => 
-              i.id === currentItem.id 
-                ? { ...i, analiseIA: analysis || "Não foi possível gerar análise." } 
+            const analysis = await retryWithBackoff(() => getAISuggestions([currentItem], metrics));
+            setItems(prev => prev.map(i =>
+              i.id === currentItem.id
+                ? { ...i, analiseIA: analysis || "Não foi possível gerar análise." }
                 : i
             ));
           } catch (err) {
             console.error(`Error analyzing item ${currentItem.id}:`, err);
-            setItems(prev => prev.map(i => 
-              i.id === currentItem.id 
-                ? { ...i, analiseIA: "Erro na análise automática deste item." } 
+            setItems(prev => prev.map(i =>
+              i.id === currentItem.id
+                ? { ...i, analiseIA: "Erro na análise automática deste item." }
                 : i
             ));
           } finally {
@@ -853,29 +904,37 @@ export default function App() {
           </nav>
 
           {activeTab === 'calculator' && (
-            <div className="flex gap-3">
-              <input 
-                type="file" 
-                ref={fileInputRef} 
-                onChange={handleFileUpload} 
-                accept=".xlsx,.xls,.csv" 
-                className="hidden" 
+            <div className="flex flex-wrap gap-2">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".xlsx,.xls,.csv"
+                className="hidden"
               />
-              <button 
+              <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={isUploading}
-                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
-                <FileUp size={16} className="text-delaware-teal" />
+                <FileUp size={15} className="text-delaware-teal" />
                 {isUploading ? 'Processando...' : 'Importar XLSX'}
               </button>
-              <button 
+              <button
                 onClick={() => handleAIAnalysis()}
                 disabled={isAnalyzing || items.length === 0}
-                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-4 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
               >
-                <Sparkles size={16} className="text-delaware-red" />
-                Analisar Todos com IA
+                <Sparkles size={15} className="text-delaware-red" />
+                {isAnalyzing ? `Analisando ${analysisProgress.current}/${analysisProgress.total}...` : 'Analisar com IA'}
+              </button>
+              <button
+                onClick={handleBatchComplexity}
+                disabled={isBatchComplexity || items.length === 0}
+                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <Brain size={15} className="text-delaware-teal" />
+                {isBatchComplexity ? `Complexidade ${batchComplexityProgress.current}/${batchComplexityProgress.total}...` : 'Complexidade em Lote'}
               </button>
               <button 
                 onClick={handleExportPDF}
