@@ -127,6 +127,7 @@ export default function App() {
   };
 
   // Settings State
+  const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
   const [settingsSolicitacao, setSettingsSolicitacao] = useState<string>('NOVO');
   const [settingsTipo, setSettingsTipo] = useState<string>('Report ABAP');
   const [isAddingNewTipo, setIsAddingNewTipo] = useState(false);
@@ -1461,11 +1462,37 @@ export default function App() {
                     Salvar Métricas
                   </button>
 
-                  <div className="ml-auto flex items-center gap-2 px-4 py-2 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-xs font-medium text-gray-600">
-                      IA: Configurada
-                    </span>
+                  <div className="ml-auto flex items-center gap-3">
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="password"
+                        value={geminiApiKey}
+                        onChange={e => setGeminiApiKey(e.target.value)}
+                        placeholder="Chave API Gemini (AIza...)"
+                        className="w-64 bg-white border border-gray-300 rounded-md py-2 px-3 text-sm focus:outline-none focus:ring-1 focus:ring-delaware-teal focus:border-delaware-teal"
+                      />
+                      <button
+                        onClick={() => {
+                          localStorage.setItem('gemini_api_key', geminiApiKey);
+                          alert('Chave Gemini salva com sucesso!');
+                        }}
+                        className="flex items-center gap-1 bg-delaware-teal text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-delaware-teal/90"
+                      >
+                        <Save size={14} />
+                        Salvar Chave
+                      </button>
+                    </div>
+                    <button
+                      onClick={() => {
+                        if (confirm('Apagar todos os GAPs importados? Esta ação não pode ser desfeita.')) {
+                          localStorage.removeItem('sap_estimation_items');
+                          setItems([]);
+                        }
+                      }}
+                      className="flex items-center gap-1 bg-red-50 text-red-600 border border-red-200 px-3 py-2 rounded-md text-sm font-medium hover:bg-red-100"
+                    >
+                      Limpar Dados
+                    </button>
                   </div>
                 </div>
 

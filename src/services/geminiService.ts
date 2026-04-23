@@ -2,7 +2,7 @@ import { GoogleGenAI } from "@google/genai";
 import { EstimationItem, Metric, ComplexityParameters } from "../types";
 
 function getAIInstance() {
-  const apiKey = 'AIzaSyAkc2HYzVQOkoaBvFTMLaHXGwUgNhemaWM' || process.env.API_KEY || process.env.GEMINI_API_KEY || localStorage.getItem('gemini_api_key');
+  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || localStorage.getItem('gemini_api_key');
   if (!apiKey) {
     throw new Error("API_KEY_MISSING");
   }
