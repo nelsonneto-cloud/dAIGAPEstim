@@ -385,9 +385,20 @@ export default function App() {
       if (item.riscoTecnologiaNova) baseTotal *= 1.30; // +30%
       if (item.riscoDependenciaTerceiros) baseTotal += 10; // +10h fixas
 
+      // Apply AI doc discount: each IA-generated draft reduces documentacao by 20%
+      if (item.efGeradaIA) item.documentacao = Math.max(0, item.documentacao * 0.80);
+      if (item.etGeradaIA) item.documentacao = Math.max(0, item.documentacao * 0.80);
+
+      // Recalculate baseTotal with updated documentacao
+      baseTotal = item.esforcoDev + item.testesUnitarios + item.esforcoFuncional +
+                  item.testesIntegrados + item.documentacao + item.deploy;
+      if (item.riscoFsIncompleta) baseTotal *= 1.20;
+      if (item.riscoTecnologiaNova) baseTotal *= 1.30;
+      if (item.riscoDependenciaTerceiros) baseTotal += 10;
+
       // Add Extra Phases Hours
       const extraPhases = (item.horasFSReview || 0) + (item.horasSuporteTMS || 0) + (item.horasSuporteUAT || 0);
-      
+
       // Apply Global Calibration Factor
       item.total = (baseTotal + extraPhases) * (projectInfo.fatorCalibracao || 1.0);
 
@@ -520,6 +531,22 @@ export default function App() {
     }));
   };
 
+  const handleConfirmAllAI = () => {
+    const eligible = items.filter(i => i.aiSugestaoHoras !== undefined && !i.ajusteConfirmado);
+    if (eligible.length === 0) { alert('Nenhum item pendente com sugestão de IA.'); return; }
+    setItems(prev => prev.map(item => {
+      if (item.aiSugestaoHoras === undefined || item.ajusteConfirmado) return item;
+      const updated = { ...item, ajusteConfirmado: true };
+      updateItemCalculations(updated, metrics);
+      return updated;
+    }));
+  };
+
+  const isDescricaoSuficiente = (descricao: string): boolean => {
+    const words = descricao.trim().split(/\s+/).filter(Boolean);
+    return words.length >= 25;
+  };
+
   const removeItem = (id: string) => {
     setItems(items.filter(item => item.id !== id));
   };
@@ -636,46 +663,66 @@ export default function App() {
           return;
         }
 
+        if (!isDescricaoSuficiente(item.descricao)) {
+          alert(`Descrição insuficiente para gerar uma ${type} de qualidade.\n\nO item "${item.titulo || item.scopeItem}" tem poucos detalhes técnicos. Edite o GAP e adicione mais informações antes de gerar a especificação.`);
+          return;
+        }
+
         setLoadingItems(prev => new Set(prev).add(item.id));
-        const content = type === 'EF' 
-          ? await generateFunctionalSpec(item) 
-          : await generateTechnicalSpec(item);
-        
-        setDocModal({ 
-          isOpen: true, 
-          type, 
-          content: content || '', 
-          itemId: item.id 
+        const content = type === 'EF'
+          ? await retryWithBackoff(() => generateFunctionalSpec(item))
+          : await retryWithBackoff(() => generateTechnicalSpec(item));
+
+        setDocModal({
+          isOpen: true,
+          type,
+          content: content || '',
+          itemId: item.id
         });
 
-        // Update item in local state
-        setItems(prev => prev.map(idx => 
-          idx.id === item.id 
-            ? { ...idx, [type === 'EF' ? 'especificacaoFuncional' : 'especificacaoTecnica']: content } 
-            : idx
-        ));
+        // Save spec and apply AI doc discount flag
+        setItems(prev => prev.map(idx => {
+          if (idx.id !== item.id) return idx;
+          const updated = {
+            ...idx,
+            [type === 'EF' ? 'especificacaoFuncional' : 'especificacaoTecnica']: content,
+            [type === 'EF' ? 'efGeradaIA' : 'etGeradaIA']: true,
+          };
+          updateItemCalculations(updated, metrics);
+          return updated;
+        }));
       } else {
-        // Batch processing
-        const promises = itemsToProcess.map(async (currentItem) => {
+        // Batch processing — sequential to respect rate limits
+        let geradas = 0; let puladas = 0;
+        for (const currentItem of itemsToProcess) {
+          if (!isDescricaoSuficiente(currentItem.descricao)) {
+            puladas++;
+            setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
+            continue;
+          }
           try {
-            const content = type === 'EF' 
-              ? await generateFunctionalSpec(currentItem) 
-              : await generateTechnicalSpec(currentItem);
-            
-            setItems(prev => prev.map(i => 
-              i.id === currentItem.id 
-                ? { ...i, [type === 'EF' ? 'especificacaoFuncional' : 'especificacaoTecnica']: content } 
-                : i
-            ));
+            const content = type === 'EF'
+              ? await retryWithBackoff(() => generateFunctionalSpec(currentItem))
+              : await retryWithBackoff(() => generateTechnicalSpec(currentItem));
+
+            setItems(prev => prev.map(i => {
+              if (i.id !== currentItem.id) return i;
+              const updated = {
+                ...i,
+                [type === 'EF' ? 'especificacaoFuncional' : 'especificacaoTecnica']: content,
+                [type === 'EF' ? 'efGeradaIA' : 'etGeradaIA']: true,
+              };
+              updateItemCalculations(updated, metrics);
+              return updated;
+            }));
+            geradas++;
           } catch (err) {
             console.error(`Error generating doc for ${currentItem.id}:`, err);
           } finally {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
           }
-        });
-
-        await Promise.all(promises);
-        alert(`${type}s geradas em lote com sucesso!`);
+        }
+        alert(`${type}s em lote: ${geradas} geradas, ${puladas} puladas por descrição insuficiente.`);
       }
     } catch (error) {
       console.error("Documentation generation error:", error);
@@ -727,12 +774,13 @@ export default function App() {
         margin: [10, 10, 10, 10], // Margens equilibradas
         filename: `Estimativa_GAPs_${projectInfo.nome || 'SAP'}.pdf`,
         image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: { 
-          scale: 2, 
-          useCORS: true, 
+        html2canvas: {
+          scale: 2,
+          useCORS: true,
           logging: false,
+          scrollX: 0,
           scrollY: 0,
-          windowWidth: document.documentElement.offsetWidth,
+          windowWidth: 794, // 210mm at 96dpi
           onclone: (clonedDoc: Document) => {
             const elements = clonedDoc.getElementsByTagName('*');
             for (let i = 0; i < elements.length; i++) {
@@ -750,7 +798,7 @@ export default function App() {
           }
         },
         jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+        pagebreak: { mode: ['css', 'legacy'], before: '.break-before-page', after: '.break-after-page', avoid: '.page-break-inside-avoid' }
       };
 
       try {
@@ -935,6 +983,14 @@ export default function App() {
               >
                 <Brain size={15} className="text-delaware-teal" />
                 {isBatchComplexity ? `Complexidade ${batchComplexityProgress.current}/${batchComplexityProgress.total}...` : 'Complexidade em Lote'}
+              </button>
+              <button
+                onClick={handleConfirmAllAI}
+                disabled={items.length === 0}
+                className="flex items-center gap-2 bg-white border border-gray-200 text-delaware-gray px-3 py-2 rounded-lg text-sm font-medium hover:bg-gray-50 transition-colors disabled:opacity-50"
+              >
+                <Sparkles size={15} className="text-green-600" />
+                Confirmar Tudo IA
               </button>
               <button 
                 onClick={handleExportPDF}
@@ -2188,9 +2244,9 @@ export default function App() {
         )}
       </AnimatePresence>
       {/* Hidden PDF Report Template - Isolado para evitar bleed-through de UI */}
-      <div 
+      <div
         id="pdf-container-wrapper"
-        style={{ position: 'fixed', top: '100vh', left: 0, width: '210mm', zIndex: -9999, pointerEvents: 'none' }}
+        style={{ position: 'absolute', top: 0, left: '-9999px', width: '210mm', pointerEvents: 'none' }}
         className="bg-white"
       >
         <ReportTemplate 
