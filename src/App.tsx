@@ -16,16 +16,12 @@ import {
 } from 'recharts';
 import { addDays, isWeekend, format, addBusinessDays } from 'date-fns';
 
-const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 5, baseDelay = 5000): Promise<T> => {
+const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 2, baseDelay = 2000): Promise<T> => {
   for (let i = 0; i < retries; i++) {
     try { return await fn(); } catch (err: any) {
       if (i === retries - 1) throw err;
-      // 503 / UNAVAILABLE → espera mais (mínimo 15s na primeira tentativa)
-      const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE');
-      const delay = is503
-        ? Math.max(15000, baseDelay * Math.pow(2, i)) + Math.random() * 3000
-        : baseDelay * Math.pow(2, i);
-      await new Promise(r => setTimeout(r, delay));
+      // Pequeno delay entre tentativas — o fallback de modelo já lida com 503
+      await new Promise(r => setTimeout(r, baseDelay * (i + 1)));
     }
   }
   throw new Error('Max retries exceeded');
@@ -615,7 +611,7 @@ export default function App() {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
           }
           // Pausa entre requisições para não sobrecarregar a API
-          await new Promise(r => setTimeout(r, 1500));
+          await new Promise(r => setTimeout(r, 800));
         }
       }
     } catch (error: any) {
