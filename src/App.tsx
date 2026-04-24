@@ -16,11 +16,16 @@ import {
 } from 'recharts';
 import { addDays, isWeekend, format, addBusinessDays } from 'date-fns';
 
-const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 3, baseDelay = 3000): Promise<T> => {
+const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 5, baseDelay = 5000): Promise<T> => {
   for (let i = 0; i < retries; i++) {
     try { return await fn(); } catch (err: any) {
       if (i === retries - 1) throw err;
-      await new Promise(r => setTimeout(r, baseDelay * Math.pow(2, i)));
+      // 503 / UNAVAILABLE → espera mais (mínimo 15s na primeira tentativa)
+      const is503 = err?.status === 503 || err?.message?.includes('503') || err?.message?.includes('UNAVAILABLE');
+      const delay = is503
+        ? Math.max(15000, baseDelay * Math.pow(2, i)) + Math.random() * 3000
+        : baseDelay * Math.pow(2, i);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
   throw new Error('Max retries exceeded');
@@ -101,7 +106,7 @@ export default function App() {
     criacaoArquivoExterno: "Cria Arquivo Externo"
   };
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0 });
+  const [analysisProgress, setAnalysisProgress] = useState({ current: 0, total: 0, currentTitle: '' });
   const [isBatchComplexity, setIsBatchComplexity] = useState(false);
   const [batchComplexityProgress, setBatchComplexityProgress] = useState({ current: 0, total: 0 });
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -559,7 +564,7 @@ export default function App() {
     if (itemsToAnalyze.length === 0) return;
     
     setIsAnalyzing(true);
-    setAnalysisProgress({ current: 0, total: itemsToAnalyze.length });
+    setAnalysisProgress({ current: 0, total: itemsToAnalyze.length, currentTitle: '' });
 
     try {
       // Se for item individual, mantém lógica simples. Se for lote, processa em paralelo.
@@ -585,13 +590,13 @@ export default function App() {
             : i
         ));
       } else {
-        // Processamento em lote em paralelo
-        const promises = itemsToAnalyze.map(async (currentItem) => {
+        // Processamento em lote sequencial (evita sobrecarga da API)
+        for (const currentItem of itemsToAnalyze) {
           if (currentItem.analiseIA && !isAnaliseErro(currentItem.analiseIA)) {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
-            return;
+            continue;
           }
-          
+          setAnalysisProgress(prev => ({ ...prev, currentTitle: currentItem.titulo || currentItem.scopeItem || '' }));
           try {
             const analysis = await retryWithBackoff(() => getAISuggestions([currentItem], metrics));
             setItems(prev => prev.map(i =>
@@ -609,9 +614,9 @@ export default function App() {
           } finally {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
           }
-        });
-
-        await Promise.all(promises);
+          // Pausa entre requisições para não sobrecarregar a API
+          await new Promise(r => setTimeout(r, 1500));
+        }
       }
     } catch (error: any) {
       console.error("AI Analysis Error:", error);
@@ -640,7 +645,7 @@ export default function App() {
         });
       }
       // Reseta progresso após um breve delay para o usuário ver o 100%
-      setTimeout(() => setAnalysisProgress({ current: 0, total: 0 }), 1000);
+      setTimeout(() => setAnalysisProgress({ current: 0, total: 0, currentTitle: '' }), 1000);
     }
   };
 
@@ -649,7 +654,7 @@ export default function App() {
     if (itemsToProcess.length === 0) return;
 
     setIsGeneratingDoc(true);
-    setAnalysisProgress({ current: 0, total: itemsToProcess.length });
+    setAnalysisProgress({ current: 0, total: itemsToProcess.length, currentTitle: '' });
 
     try {
       if (item) {
@@ -752,7 +757,7 @@ export default function App() {
           return next;
         });
       }
-      setTimeout(() => setAnalysisProgress({ current: 0, total: 0 }), 1000);
+      setTimeout(() => setAnalysisProgress({ current: 0, total: 0, currentTitle: '' }), 1000);
     }
   };
 
@@ -2254,6 +2259,11 @@ export default function App() {
                 <div className="text-sm text-gray-500">
                   {analysisProgress.current} de {analysisProgress.total} itens processados
                 </div>
+                {analysisProgress.currentTitle && (
+                  <div className="text-xs text-gray-400 mt-1 truncate">
+                    Processando: {analysisProgress.currentTitle}
+                  </div>
+                )}
               </div>
             </motion.div>
           </motion.div>
