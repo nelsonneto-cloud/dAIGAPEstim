@@ -1,12 +1,12 @@
 import { GoogleGenAI } from "@google/genai";
 import { EstimationItem, Metric, ComplexityParameters } from "../types";
 
-// Cadeia de fallback: se o primeiro modelo retornar 503, tenta o próximo imediatamente
+// Cadeia de fallback: modelos confirmados compatíveis com chaves novas + v1beta
+// gemini-2.0-flash → 404 "no longer available to new users" — REMOVIDO
 const FALLBACK_MODELS = [
   'gemini-2.5-flash',
-  'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
-  'gemini-1.5-flash',
+  'gemini-1.5-flash-latest',
 ];
 
 function getAIInstance() {
@@ -17,11 +17,17 @@ function getAIInstance() {
   return new GoogleGenAI({ apiKey });
 }
 
-function is503(err: any): boolean {
-  return err?.status === 503
-    || String(err?.message).includes('503')
-    || String(err?.message).includes('UNAVAILABLE')
-    || String(err?.message).includes('high demand');
+// Retorna true para erros que devem fazer tentar o próximo modelo (não são fatais)
+function shouldTryNextModel(err: any): boolean {
+  const msg = String(err?.message || '');
+  const status = err?.status;
+  return status === 503
+    || status === 404
+    || msg.includes('503')
+    || msg.includes('UNAVAILABLE')
+    || msg.includes('high demand')
+    || msg.includes('NOT_FOUND')
+    || msg.includes('no longer available');
 }
 
 async function generateWithFallback(
@@ -35,11 +41,11 @@ async function generateWithFallback(
       return response.text || '';
     } catch (err: any) {
       lastErr = err;
-      if (is503(err)) {
-        console.warn(`Model ${model} unavailable (503), trying next fallback...`);
+      if (shouldTryNextModel(err)) {
+        console.warn(`Model ${model} unavailable (${err?.status || 'ERR'}), trying next fallback...`);
         continue; // tenta próximo modelo imediatamente
       }
-      throw err; // erros que não são 503 sobem imediatamente
+      throw err; // erros fatais (ex: chave inválida) sobem imediatamente
     }
   }
   throw lastErr; // todos os modelos falharam
