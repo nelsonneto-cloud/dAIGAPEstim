@@ -3,7 +3,7 @@ import { Plus, Save, Settings as SettingsIcon, Calculator, Brain, Trash2, Downlo
 import { motion, AnimatePresence } from 'motion/react';
 import { EstimationItem, Metric, ProjectInfo, Complexity } from './types';
 import { DEFAULT_METRICS } from './constants';
-import { getAISuggestions, classifyAndAnalyzeCleanCore, generateFunctionalSpec, generateTechnicalSpec, analyzeComplexityParameters, calculateComplexityScore } from './services/geminiService';
+import { getAISuggestions, classifyAndAnalyzeCleanCore, generateFunctionalSpec, generateTechnicalSpec, analyzeComplexityParameters, calculateComplexityScore, discoverModels } from './services/geminiService';
 import ReactMarkdown from 'react-markdown';
 import * as XLSX from 'xlsx';
 // @ts-ignore
@@ -141,6 +141,8 @@ export default function App() {
 
   // Settings State
   const [geminiApiKey, setGeminiApiKey] = useState<string>(() => localStorage.getItem('gemini_api_key') || '');
+  const [modelTestResult, setModelTestResult] = useState<string | null>(null);
+  const [isTestingModels, setIsTestingModels] = useState(false);
   const [settingsSolicitacao, setSettingsSolicitacao] = useState<string>('NOVO');
   const [settingsTipo, setSettingsTipo] = useState<string>('Report ABAP');
   const [isAddingNewTipo, setIsAddingNewTipo] = useState(false);
@@ -1607,6 +1609,7 @@ export default function App() {
                       <button
                         onClick={() => {
                           localStorage.setItem('gemini_api_key', geminiApiKey);
+                          setModelTestResult(null);
                           alert('Chave Gemini salva com sucesso!');
                         }}
                         className="flex items-center gap-1 bg-delaware-teal text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-delaware-teal/90"
@@ -1614,7 +1617,32 @@ export default function App() {
                         <Save size={14} />
                         Salvar Chave
                       </button>
+                      <button
+                        disabled={isTestingModels || !geminiApiKey}
+                        onClick={async () => {
+                          setIsTestingModels(true);
+                          setModelTestResult(null);
+                          try {
+                            localStorage.setItem('gemini_api_key', geminiApiKey);
+                            const models = await discoverModels();
+                            setModelTestResult(`✅ ${models.length} modelo(s) disponível(is):\n${models.join('\n')}`);
+                          } catch (e: any) {
+                            setModelTestResult(`❌ Erro: ${e.message}`);
+                          } finally {
+                            setIsTestingModels(false);
+                          }
+                        }}
+                        className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-100 disabled:opacity-50"
+                      >
+                        <Brain size={14} />
+                        {isTestingModels ? 'Testando...' : 'Testar Modelos'}
+                      </button>
                     </div>
+                    {modelTestResult && (
+                      <div className={`mt-2 text-xs font-mono whitespace-pre p-2 rounded border ${modelTestResult.startsWith('✅') ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-700'}`}>
+                        {modelTestResult}
+                      </div>
+                    )}
                     <button
                       onClick={() => {
                         if (confirm('Apagar todos os GAPs importados? Esta ação não pode ser desfeita.')) {

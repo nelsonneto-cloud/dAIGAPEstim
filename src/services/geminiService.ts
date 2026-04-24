@@ -1,51 +1,99 @@
 import { GoogleGenAI } from "@google/genai";
 import { EstimationItem, Metric, ComplexityParameters } from "../types";
 
-// Cadeia de fallback: modelos confirmados compatíveis com chaves novas + v1beta
-// gemini-2.0-flash → 404 "no longer available to new users" — REMOVIDO
-const FALLBACK_MODELS = [
-  'gemini-2.5-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-1.5-flash-latest',
-];
+// Modelos descobertos via ListModels — populado em runtime
+let _discoveredModels: string[] | null = null;
+// Modelo que funcionou por último (começa por ele na próxima chamada)
+let _lastWorkingModel: string | null = null;
 
-function getAIInstance() {
-  const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || localStorage.getItem('gemini_api_key');
-  if (!apiKey) {
-    throw new Error("API_KEY_MISSING");
-  }
-  return new GoogleGenAI({ apiKey });
+function getApiKey(): string {
+  const key = process.env.GEMINI_API_KEY || process.env.API_KEY || localStorage.getItem('gemini_api_key');
+  if (!key) throw new Error("API_KEY_MISSING");
+  return key;
 }
 
-// Retorna true para erros que devem fazer tentar o próximo modelo (não são fatais)
+function getAIInstance() {
+  return new GoogleGenAI({ apiKey: getApiKey() });
+}
+
+// Consulta a API para descobrir quais modelos estão disponíveis para esta chave
+export async function discoverModels(): Promise<string[]> {
+  _discoveredModels = null; // força redescoberta
+  const apiKey = getApiKey();
+  const res = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=100`
+  );
+  if (!res.ok) throw new Error(`ListModels failed: ${res.status}`);
+  const data = await res.json();
+
+  const all: string[] = (data.models || [])
+    .filter((m: any) =>
+      Array.isArray(m.supportedGenerationMethods) &&
+      m.supportedGenerationMethods.includes('generateContent')
+    )
+    .map((m: any) => (m.name as string).replace('models/', ''));
+
+  // Ordena preferindo versões mais recentes de flash
+  const priority = ['gemini-2.5', 'gemini-2.0', 'gemini-1.5'];
+  all.sort((a, b) => {
+    const ai = priority.findIndex(p => a.includes(p));
+    const bi = priority.findIndex(p => b.includes(p));
+    return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+  });
+
+  _discoveredModels = all.filter(m => m.includes('flash') || m.includes('pro')).slice(0, 6);
+  console.log('[Gemini] Modelos disponíveis:', _discoveredModels);
+  return _discoveredModels;
+}
+
+async function getModels(): Promise<string[]> {
+  if (_discoveredModels && _discoveredModels.length > 0) return _discoveredModels;
+  try {
+    return await discoverModels();
+  } catch {
+    // fallback conservador enquanto a descoberta falha
+    return ['gemini-2.5-flash'];
+  }
+}
+
+// Retorna true para erros que devem tentar o próximo modelo (não são fatais)
 function shouldTryNextModel(err: any): boolean {
   const msg = String(err?.message || '');
   const status = err?.status;
-  return status === 503
-    || status === 404
-    || msg.includes('503')
-    || msg.includes('UNAVAILABLE')
-    || msg.includes('high demand')
-    || msg.includes('NOT_FOUND')
-    || msg.includes('no longer available');
+  return status === 503 || status === 404
+    || msg.includes('503') || msg.includes('UNAVAILABLE')
+    || msg.includes('high demand') || msg.includes('NOT_FOUND')
+    || msg.includes('no longer available') || msg.includes('not found for API');
 }
 
 async function generateWithFallback(
   buildRequest: (model: string) => Parameters<GoogleGenAI['models']['generateContent']>[0]
 ): Promise<string> {
   const ai = getAIInstance();
+  const models = await getModels();
+
+  // Reordena colocando o último modelo que funcionou na frente
+  const ordered = _lastWorkingModel && models.includes(_lastWorkingModel)
+    ? [_lastWorkingModel, ...models.filter(m => m !== _lastWorkingModel)]
+    : models;
+
   let lastErr: any;
-  for (const model of FALLBACK_MODELS) {
+  for (const model of ordered) {
     try {
       const response = await ai.models.generateContent(buildRequest(model));
+      _lastWorkingModel = model; // memoriza modelo que funcionou
       return response.text || '';
     } catch (err: any) {
       lastErr = err;
       if (shouldTryNextModel(err)) {
-        console.warn(`Model ${model} unavailable (${err?.status || 'ERR'}), trying next fallback...`);
-        continue; // tenta próximo modelo imediatamente
+        console.warn(`[Gemini] ${model} indisponível (${err?.status || 'ERR'}), tentando próximo...`);
+        // Aguarda 2s em caso de 503 antes do próximo modelo
+        if (err?.status === 503 || String(err?.message).includes('503')) {
+          await new Promise(r => setTimeout(r, 2000));
+        }
+        continue;
       }
-      throw err; // erros fatais (ex: chave inválida) sobem imediatamente
+      throw err;
     }
   }
   throw lastErr; // todos os modelos falharam
