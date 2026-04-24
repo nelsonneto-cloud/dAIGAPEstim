@@ -708,13 +708,14 @@ export default function App() {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
             continue;
           }
-          // Já tem doc gerada e sem erro → pula
+          // Já tem doc gerada → pula
           const existingDoc = type === 'EF' ? currentItem.especificacaoFuncional : currentItem.especificacaoTecnica;
           if (existingDoc) {
             geradas++;
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
             continue;
           }
+          setAnalysisProgress(prev => ({ ...prev, currentTitle: currentItem.titulo || currentItem.scopeItem || '' }));
           try {
             const content = type === 'EF'
               ? await retryWithBackoff(() => generateFunctionalSpec(currentItem))
@@ -780,55 +781,63 @@ export default function App() {
 
   const handleExportPDF = async () => {
     setIsGeneratingPDF(true);
-    
-    // Pequeno delay para garantir que o React renderizou as propriedades mais novas no DOM oculto
-    setTimeout(async () => {
-      const element = document.getElementById('pdf-report-content');
-      if (!element) {
-        setIsGeneratingPDF(false);
-        return;
-      }
 
-      const opt = {
-        margin: [10, 10, 10, 10], // Margens equilibradas
-        filename: `Estimativa_GAPs_${projectInfo.nome || 'SAP'}.pdf`,
-        image: { type: 'jpeg', quality: 0.98 },
-        html2canvas: {
-          scale: 2,
-          useCORS: true,
-          logging: false,
-          scrollX: 0,
-          scrollY: 0,
-          windowWidth: 794, // 210mm at 96dpi
-          onclone: (clonedDoc: Document) => {
-            const elements = clonedDoc.getElementsByTagName('*');
-            for (let i = 0; i < elements.length; i++) {
-              const el = elements[i] as HTMLElement;
-              const style = window.getComputedStyle(el);
-              // html2canvas struggles with oklch and oklab. 
-              // We force a solid color for any element that might be using them.
-              if (style.backgroundColor.includes('oklch') || style.backgroundColor.includes('oklab')) {
-                el.style.backgroundColor = '#ffffff';
-              }
-              if (style.color.includes('oklch') || style.color.includes('oklab')) {
-                el.style.color = '#000000';
-              }
-            }
+    // html2canvas não captura elementos fora do viewport (left: -9999px).
+    // Move o wrapper para origin visível durante a captura, mantendo-o atrás do overlay.
+    const wrapper = document.getElementById('pdf-container-wrapper');
+    if (wrapper) {
+      wrapper.style.position = 'fixed';
+      wrapper.style.left = '0';
+      wrapper.style.top = '0';
+      wrapper.style.zIndex = '1';
+    }
+
+    // Delay para React renderizar o wrapper no novo lugar antes da captura
+    await new Promise(r => setTimeout(r, 300));
+
+    const element = document.getElementById('pdf-report-content');
+    if (!element) {
+      setIsGeneratingPDF(false);
+      if (wrapper) { wrapper.style.position = 'absolute'; wrapper.style.left = '-9999px'; wrapper.style.zIndex = ''; }
+      return;
+    }
+
+    const opt = {
+      margin: [10, 10, 10, 10],
+      filename: `Estimativa_GAPs_${projectInfo.nome || 'SAP'}.pdf`,
+      image: { type: 'jpeg', quality: 0.92 },
+      html2canvas: {
+        scale: 1.5,
+        useCORS: true,
+        logging: false,
+        scrollX: 0,
+        scrollY: 0,
+        windowWidth: 794,
+        onclone: (clonedDoc: Document) => {
+          const els = clonedDoc.getElementsByTagName('*');
+          for (let i = 0; i < els.length; i++) {
+            const el = els[i] as HTMLElement;
+            const style = window.getComputedStyle(el);
+            if (style.backgroundColor.includes('oklch') || style.backgroundColor.includes('oklab')) el.style.backgroundColor = '#ffffff';
+            if (style.color.includes('oklch') || style.color.includes('oklab')) el.style.color = '#000000';
           }
-        },
-        jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-        pagebreak: { mode: ['css', 'legacy'], before: '.break-before-page', after: '.break-after-page', avoid: '.page-break-inside-avoid' }
-      };
+        }
+      },
+      jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+      // Apenas CSS — 'legacy' adiciona páginas extras em branco
+      pagebreak: { mode: ['css'], before: '.break-before-page', after: '.break-after-page' }
+    };
 
-      try {
-        await html2pdf().set(opt).from(element).save();
-      } catch (err) {
-        console.error("Error generating PDF:", err);
-        alert("Ocorreu um erro ao gerar o PDF. Verifique o console.");
-      } finally {
-        setIsGeneratingPDF(false);
-      }
-    }, 500);
+    try {
+      await html2pdf().set(opt).from(element).save();
+    } catch (err) {
+      console.error("Error generating PDF:", err);
+      alert("Ocorreu um erro ao gerar o PDF. Verifique o console.");
+    } finally {
+      // Restaura wrapper para posição escondida
+      if (wrapper) { wrapper.style.position = 'absolute'; wrapper.style.left = '-9999px'; wrapper.style.zIndex = ''; }
+      setIsGeneratingPDF(false);
+    }
   };
 
   const addNewTipo = () => {
@@ -2245,16 +2254,16 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      {/* Progress Overlay para Análise em Lote */}
+      {/* Progress Overlay para Análise / EF / ET em Lote */}
       <AnimatePresence>
-        {isAnalyzing && analysisProgress.total > 1 && (
-          <motion.div 
+        {(isAnalyzing || isGeneratingDoc) && analysisProgress.total > 1 && (
+          <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9999] flex items-center justify-center p-4"
           >
-            <motion.div 
+            <motion.div
               initial={{ scale: 0.9, y: 20 }}
               animate={{ scale: 1, y: 0 }}
               className="bg-white rounded-2xl shadow-2xl p-8 max-w-md w-full text-center"
@@ -2262,18 +2271,22 @@ export default function App() {
               <div className="w-16 h-16 bg-delaware-teal/10 rounded-full flex items-center justify-center mx-auto mb-6">
                 <Sparkles className="text-delaware-teal animate-pulse" size={32} />
               </div>
-              <h3 className="text-xl font-bold text-gray-900 mb-2">Analisando GAPs com IA</h3>
+              <h3 className="text-xl font-bold text-gray-900 mb-2">
+                {isGeneratingDoc ? 'Gerando Especificações com IA' : 'Analisando GAPs com IA'}
+              </h3>
               <p className="text-gray-500 mb-8">
-                Utilizando o Gemini para classificar e analisar Clean Core...
+                {isGeneratingDoc
+                  ? 'Gerando EF/ET via Gemini. Isso pode levar alguns minutos...'
+                  : 'Utilizando o Gemini para classificar e analisar Clean Core...'}
               </p>
-              
+
               <div className="space-y-4">
                 <div className="flex justify-between text-sm font-medium text-gray-700">
                   <span>Progresso</span>
                   <span>{Math.round((analysisProgress.current / analysisProgress.total) * 100)}%</span>
                 </div>
                 <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                  <motion.div 
+                  <motion.div
                     className="h-full bg-delaware-teal"
                     initial={{ width: 0 }}
                     animate={{ width: `${(analysisProgress.current / analysisProgress.total) * 100}%` }}

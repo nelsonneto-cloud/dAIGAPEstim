@@ -159,10 +159,11 @@ export const ReportTemplate: React.FC<ReportTemplateProps> = ({
                 </div>
               </div>
 
-              {/* Análise IA */}
-              <div className="prose prose-xs max-w-none text-[#374151]" style={{ fontSize: '10px', lineHeight: '1.5' }}>
-                <ReactMarkdown>{item.analiseIA || ''}</ReactMarkdown>
-              </div>
+              {/* Análise IA — texto truncado para manter PDF compacto */}
+              <p className="text-[10px] text-[#374151] leading-relaxed">
+                {(item.analiseIA || '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').replace(/\*/g, '').replace(/\n+/g, ' ').trim().slice(0, 400)}
+                {(item.analiseIA || '').length > 400 && '…'}
+              </p>
             </div>
           ))}
         </div>
