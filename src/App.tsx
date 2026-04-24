@@ -543,9 +543,12 @@ export default function App() {
   };
 
   const isDescricaoSuficiente = (descricao: string): boolean => {
-    const words = descricao.trim().split(/\s+/).filter(Boolean);
+    const words = (descricao || '').trim().split(/\s+/).filter(Boolean);
     return words.length >= 25;
   };
+
+  const isAnaliseErro = (analise?: string): boolean =>
+    !analise || analise.startsWith('Erro') || analise.startsWith('Não foi possível');
 
   const removeItem = (id: string) => {
     setItems(items.filter(item => item.id !== id));
@@ -561,7 +564,7 @@ export default function App() {
     try {
       // Se for item individual, mantém lógica simples. Se for lote, processa em paralelo.
       if (item) {
-        if (item.analiseIA) return; // Se já analisou, não gasta token
+        if (item.analiseIA && !isAnaliseErro(item.analiseIA)) return; // Só pula se já tem análise bem-sucedida
 
         setLoadingItems(prev => new Set(prev).add(item.id));
         const analysisResult = await classifyAndAnalyzeCleanCore(
@@ -584,7 +587,7 @@ export default function App() {
       } else {
         // Processamento em lote em paralelo
         const promises = itemsToAnalyze.map(async (currentItem) => {
-          if (currentItem.analiseIA) {
+          if (currentItem.analiseIA && !isAnaliseErro(currentItem.analiseIA)) {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
             return;
           }
@@ -693,10 +696,19 @@ export default function App() {
         }));
       } else {
         // Batch processing — sequential to respect rate limits
-        let geradas = 0; let puladas = 0;
+        let geradas = 0; let puladas = 0; let erros = 0;
+        const erroItems: string[] = [];
         for (const currentItem of itemsToProcess) {
-          if (!isDescricaoSuficiente(currentItem.descricao)) {
+          const descOk = isDescricaoSuficiente(currentItem.descricao);
+          if (!descOk) {
             puladas++;
+            setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
+            continue;
+          }
+          // Já tem doc gerada e sem erro → pula
+          const existingDoc = type === 'EF' ? currentItem.especificacaoFuncional : currentItem.especificacaoTecnica;
+          if (existingDoc) {
+            geradas++;
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
             continue;
           }
@@ -718,11 +730,15 @@ export default function App() {
             geradas++;
           } catch (err) {
             console.error(`Error generating doc for ${currentItem.id}:`, err);
+            erros++;
+            erroItems.push(currentItem.scopeItem || currentItem.id);
           } finally {
             setAnalysisProgress(prev => ({ ...prev, current: prev.current + 1 }));
           }
         }
-        alert(`${type}s em lote: ${geradas} geradas, ${puladas} puladas por descrição insuficiente.`);
+        let msg = `${type}s em lote concluído:\n✅ ${geradas} geradas\n⏭ ${puladas} puladas (descrição insuficiente)`;
+        if (erros > 0) msg += `\n❌ ${erros} com erro de API:\n${erroItems.slice(0, 10).join(', ')}${erroItems.length > 10 ? '...' : ''}`;
+        alert(msg);
       }
     } catch (error) {
       console.error("Documentation generation error:", error);
@@ -926,8 +942,8 @@ export default function App() {
       </header>
 
       <main className="p-8 max-w-[1600px] mx-auto">
-        <div className="flex justify-between items-center mb-6">
-          <nav className="flex bg-white rounded-lg shadow-sm border border-gray-200 p-1">
+        <div className="mb-6 space-y-3">
+          <nav className="flex bg-white rounded-lg shadow-sm border border-gray-200 p-1 w-fit">
             <button 
               onClick={() => setActiveTab('calculator')}
               className={`px-6 py-2 rounded-md text-sm font-medium transition-all flex items-center gap-2 ${activeTab === 'calculator' ? 'bg-delaware-teal/10 text-delaware-teal' : 'text-gray-500 hover:text-gray-700'}`}
@@ -952,7 +968,7 @@ export default function App() {
           </nav>
 
           {activeTab === 'calculator' && (
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-2 items-center">
               <input
                 type="file"
                 ref={fileInputRef}
