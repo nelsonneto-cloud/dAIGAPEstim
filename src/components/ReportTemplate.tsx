@@ -1,6 +1,5 @@
 import React from 'react';
 import { EstimationItem, ProjectInfo } from '../types';
-import ReactMarkdown from 'react-markdown';
 
 interface ReportTemplateProps {
   projectInfo: ProjectInfo;
@@ -15,191 +14,153 @@ const formatDate = (dateString: string) => {
     const d = new Date(dateString);
     d.setMinutes(d.getMinutes() + d.getTimezoneOffset());
     return d.toLocaleDateString('pt-BR');
-  } catch (e) {
+  } catch {
     return dateString;
   }
 };
 
-const COMPLEXITY_COLORS: Record<string, string> = {
-  PP: '#16a34a',
-  P:  '#65a30d',
-  M:  '#ca8a04',
-  G:  '#ea580c',
-  GG: '#dc2626',
+const stripMd = (text: string, maxLen = 350) =>
+  (text || '')
+    .replace(/#{1,6}\s+/g, '')
+    .replace(/\*{1,2}([^*]+)\*{1,2}/g, '$1')
+    .replace(/`[^`]+`/g, '')
+    .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+    .replace(/\n+/g, ' ')
+    .trim()
+    .slice(0, maxLen) + ((text || '').length > maxLen ? '…' : '');
+
+const CX_COLOR: Record<string, string> = {
+  PP: '#16a34a', P: '#65a30d', M: '#ca8a04', G: '#ea580c', GG: '#dc2626',
 };
 
 export const ReportTemplate: React.FC<ReportTemplateProps> = ({
-  projectInfo,
-  items,
-  aiAnalysis,
-  totalHours,
+  projectInfo, items, totalHours,
 }) => {
-  const itemsWithAI   = items.filter(i => i.analiseIA);
-  const itemsWithEF   = items.filter(i => i.especificacaoFuncional);
-  const itemsWithET   = items.filter(i => i.especificacaoTecnica);
+  const funcTotal = items.reduce((s, i) => s + i.esforcoFuncional + i.documentacao, 0);
+  const techTotal = items.reduce((s, i) => s + i.esforcoDev + i.testesUnitarios + i.testesIntegrados + i.deploy, 0);
+  const withAI    = items.filter(i => i.analiseIA && !i.analiseIA.startsWith('Erro'));
 
   return (
-    <div id="pdf-report-content" className="bg-[#ffffff] text-[#1f2937] w-[190mm] mx-auto font-sans">
+    <div id="pdf-report-content" style={{ background: '#fff', color: '#1f2937', width: '190mm', margin: '0 auto', fontFamily: 'Arial, sans-serif', fontSize: '11px' }}>
 
       {/* ── CAPA ── */}
-      <div className="pdf-page break-after-page flex flex-col min-h-[250mm] justify-center">
-        <div className="flex-1 flex flex-col justify-center">
-          <div className="w-[150px] h-[40px] bg-delaware-teal mb-10 pl-4 py-2 flex items-center">
-            <span className="text-white font-bold text-xl tracking-wider">delaware</span>
-          </div>
-          <div className="border-l-4 border-delaware-red pl-6 mb-8 mt-10">
-            <h1 className="text-4xl font-bold text-delaware-gray mb-2">Estimativa GAPs</h1>
-            <h2 className="text-2xl text-delaware-teal">Resumo de Atividades e Mapeamento Integrado</h2>
-          </div>
-          <div className="mt-20 space-y-4 text-[#4b5563]">
-            {[
-              ['Projeto / Cliente', projectInfo.nome || 'Não definido'],
-              ['Gerente / Autor',   projectInfo.gerente || 'Não definido'],
-              ['Data da Geração',   formatDate(projectInfo.data)],
-              ['Versão',            '1.0'],
-            ].map(([label, value]) => (
-              <div key={label} className="grid grid-cols-3 border-b border-[#e5e7eb] pb-2">
-                <span className="font-semibold text-[#6b7280]">{label}:</span>
-                <span className="col-span-2 font-bold text-[#1f2937]">{value}</span>
-              </div>
-            ))}
-          </div>
+      <div style={{ minHeight: '250mm', display: 'flex', flexDirection: 'column', justifyContent: 'center', pageBreakAfter: 'always' }}>
+        <div style={{ width: 150, height: 40, background: '#0d7a79', marginBottom: 40, padding: '8px 16px', display: 'flex', alignItems: 'center' }}>
+          <span style={{ color: '#fff', fontWeight: 'bold', fontSize: 20, letterSpacing: 2 }}>delaware</span>
         </div>
-        <div className="text-center text-xs text-[#9ca3af] border-t border-[#f3f4f6] pt-4 mt-auto">
+        <div style={{ borderLeft: '4px solid #e03434', paddingLeft: 24, marginBottom: 32, marginTop: 40 }}>
+          <h1 style={{ fontSize: 32, fontWeight: 'bold', color: '#374151', margin: '0 0 8px' }}>Estimativa GAPs</h1>
+          <h2 style={{ fontSize: 20, color: '#0d7a79', margin: 0 }}>Resumo de Atividades e Mapeamento Integrado</h2>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 32 }}>
+          {[
+            ['Projeto / Cliente', projectInfo.nome || 'Não definido'],
+            ['Gerente / Autor',   projectInfo.gerente || 'Não definido'],
+            ['Data da Geração',   formatDate(projectInfo.data)],
+            ['Versão',            '1.0'],
+          ].map(([label, val]) => (
+            <tr key={label} style={{ borderBottom: '1px solid #e5e7eb' }}>
+              <td style={{ padding: '6px 0', color: '#6b7280', width: '35%' }}>{label}:</td>
+              <td style={{ padding: '6px 0', fontWeight: 'bold' }}>{val}</td>
+            </tr>
+          ))}
+        </table>
+        <div style={{ marginTop: 'auto', paddingTop: 16, borderTop: '1px solid #f3f4f6', textAlign: 'center', color: '#9ca3af', fontSize: 9 }}>
           Este documento contém estimativas e análises geradas por Inteligência Artificial e revisões especializadas.
         </div>
       </div>
 
       {/* ── RESUMO EXECUTIVO ── */}
-      <div className="pdf-page break-after-page pt-6">
-        <h2 className="text-2xl font-bold text-delaware-gray mb-6 border-b-2 border-delaware-teal pb-2">
+      <div style={{ paddingTop: 24, pageBreakAfter: 'always' }}>
+        <h2 style={{ fontSize: 18, fontWeight: 'bold', color: '#374151', borderBottom: '2px solid #0d7a79', paddingBottom: 8, marginBottom: 24 }}>
           1. Resumo Executivo
         </h2>
 
-        {/* KPI cards */}
-        <div className="grid grid-cols-4 gap-3 mb-8">
+        {/* KPIs */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 1fr', gap: 12, marginBottom: 32 }}>
           {[
-            ['GAPs Identificados', items.length, 'text-delaware-teal'],
-            ['Total de Horas',     `${totalHours.toFixed(1)} h`, 'text-delaware-red'],
-            ['Esforço Funcional',  `${items.reduce((s,i)=>s+i.esforcoFuncional+i.documentacao,0).toFixed(1)} h`, 'text-[#374151]'],
-            ['Esforço Técnico',    `${items.reduce((s,i)=>s+i.esforcoDev+i.testesUnitarios+i.testesIntegrados+i.deploy,0).toFixed(1)} h`, 'text-[#374151]'],
+            ['GAPs Identificados', String(items.length),     '#0d7a79'],
+            ['Total de Horas',     `${totalHours.toFixed(1)} h`, '#e03434'],
+            ['Esforço Funcional',  `${funcTotal.toFixed(1)} h`,  '#374151'],
+            ['Esforço Técnico',    `${techTotal.toFixed(1)} h`,  '#374151'],
           ].map(([label, value, color]) => (
-            <div key={label as string} className="bg-[#f9fafb] p-3 rounded-lg border border-[#e5e7eb] text-center">
-              <div className="text-[10px] text-[#6b7280] uppercase mb-1">{label}</div>
-              <div className={`text-2xl font-bold ${color}`}>{value}</div>
+            <div key={label} style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: 12, textAlign: 'center' }}>
+              <div style={{ fontSize: 9, color: '#6b7280', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+              <div style={{ fontSize: 20, fontWeight: 'bold', color }}>{value}</div>
             </div>
           ))}
         </div>
 
-        {/* Consolidated list */}
-        <h3 className="text-base font-bold text-delaware-gray mb-3">1.1 Lista Consolidada de GAPs</h3>
-        <table className="w-full text-left border border-[#e5e7eb]" style={{ fontSize: '9px' }}>
+        {/* Tabela consolidada */}
+        <h3 style={{ fontSize: 13, fontWeight: 'bold', color: '#374151', marginBottom: 12 }}>1.1 Lista Consolidada de GAPs</h3>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8 }}>
           <thead>
-            <tr className="bg-delaware-teal text-white">
-              <th className="p-1.5 border border-[#e5e7eb]">#</th>
-              <th className="p-1.5 border border-[#e5e7eb]">Scope</th>
-              <th className="p-1.5 border border-[#e5e7eb]">Título</th>
-              <th className="p-1.5 border border-[#e5e7eb] text-center">Tipo</th>
-              <th className="p-1.5 border border-[#e5e7eb] text-center">Cx</th>
-              <th className="p-1.5 border border-[#e5e7eb] text-center">Dev</th>
-              <th className="p-1.5 border border-[#e5e7eb] text-center">Func</th>
-              <th className="p-1.5 border border-[#e5e7eb] text-center">Total (h)</th>
+            <tr style={{ background: '#0d7a79', color: '#fff' }}>
+              {['#', 'Scope', 'Título', 'Tipo', 'Complexidade', 'DEV+Testes', 'Func+Doc', 'Total (h)'].map(h => (
+                <th key={h} style={{ padding: '5px 4px', border: '1px solid #e5e7eb', textAlign: h === '#' || h.includes('h)') || h === 'Total (h)' ? 'center' : 'left' }}>{h}</th>
+              ))}
             </tr>
           </thead>
           <tbody>
             {items.map((item, idx) => (
-              <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-[#f9fafb]'}>
-                <td className="p-1.5 border border-[#e5e7eb] text-center text-[#9ca3af]">{idx + 1}</td>
-                <td className="p-1.5 border border-[#e5e7eb] font-medium whitespace-nowrap">{item.scopeItem}</td>
-                <td className="p-1.5 border border-[#e5e7eb]" style={{ maxWidth: '160px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#9ca3af' }}>{idx + 1}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 500 }}>{item.scopeItem}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {item.titulo || item.descricao.substring(0, 45)}
                 </td>
-                <td className="p-1.5 border border-[#e5e7eb] text-center whitespace-nowrap">{item.tipoSolicitacao}</td>
-                <td className="p-1.5 border border-[#e5e7eb] text-center font-bold" style={{ color: COMPLEXITY_COLORS[item.complexidade] }}>
-                  {item.complexidade}
-                </td>
-                <td className="p-1.5 border border-[#e5e7eb] text-center">{(item.esforcoDev + item.testesUnitarios).toFixed(1)}</td>
-                <td className="p-1.5 border border-[#e5e7eb] text-center">{(item.esforcoFuncional + item.documentacao).toFixed(1)}</td>
-                <td className="p-1.5 border border-[#e5e7eb] text-center font-bold text-delaware-red">{item.total.toFixed(1)}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap' }}>{item.tipoSolicitacao}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 'bold', color: CX_COLOR[item.complexidade] }}>{item.complexidade}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center' }}>{(item.esforcoDev + item.testesUnitarios).toFixed(1)}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center' }}>{(item.esforcoFuncional + item.documentacao).toFixed(1)}</td>
+                <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 'bold', color: '#e03434' }}>{item.total.toFixed(1)}</td>
               </tr>
             ))}
-            <tr className="bg-[#e5e7eb] font-bold">
-              <td colSpan={7} className="p-1.5 border border-[#e5e7eb] text-right pr-3">TOTAL</td>
-              <td className="p-1.5 border border-[#e5e7eb] text-center text-delaware-red">{totalHours.toFixed(1)}</td>
+            <tr style={{ background: '#e5e7eb', fontWeight: 'bold' }}>
+              <td colSpan={7} style={{ padding: '5px 4px', border: '1px solid #d1d5db', textAlign: 'right', paddingRight: 8 }}>TOTAL</td>
+              <td style={{ padding: '5px 4px', border: '1px solid #d1d5db', textAlign: 'center', color: '#e03434' }}>{totalHours.toFixed(1)}</td>
             </tr>
           </tbody>
         </table>
       </div>
 
-      {/* ── ANÁLISES DE IA ── */}
-      {itemsWithAI.length > 0 && (
-        <div className="pdf-page pt-6">
-          <h2 className="text-2xl font-bold text-delaware-gray mb-6 border-b-2 border-delaware-teal pb-2">
-            2. Análises de Conformidade (Clean Core &amp; IA)
+      {/* ── ANÁLISES IA ── somente se houver */}
+      {withAI.length > 0 && (
+        <div style={{ paddingTop: 24 }}>
+          <h2 style={{ fontSize: 18, fontWeight: 'bold', color: '#374151', borderBottom: '2px solid #0d7a79', paddingBottom: 8, marginBottom: 20 }}>
+            2. Análises de Conformidade Clean Core (IA)
           </h2>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 8 }}>
+            <thead>
+              <tr style={{ background: '#0d7a79', color: '#fff' }}>
+                {['Scope', 'Título', 'Cx', 'Sugestão IA (h)', 'Análise Resumida'].map(h => (
+                  <th key={h} style={{ padding: '5px 4px', border: '1px solid #e5e7eb', textAlign: 'left' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {withAI.map((item, idx) => (
+                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb', verticalAlign: 'top' }}>
+                  <td style={{ padding: '4px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 500 }}>{item.scopeItem}</td>
+                  <td style={{ padding: '4px', border: '1px solid #e5e7eb', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {item.titulo || item.descricao.substring(0, 35)}
+                  </td>
+                  <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', fontWeight: 'bold', color: CX_COLOR[item.complexidade] }}>{item.complexidade}</td>
+                  <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#e03434', fontWeight: 'bold' }}>
+                    {item.aiSugestaoHoras !== undefined ? item.aiSugestaoHoras.toFixed(1) : '-'}
+                    {item.ajusteConfirmado && <span style={{ color: '#16a34a', marginLeft: 4 }}>✓</span>}
+                  </td>
+                  <td style={{ padding: '4px', border: '1px solid #e5e7eb', color: '#374151', maxWidth: 260 }}>
+                    {stripMd(item.analiseIA || '')}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
 
-          {itemsWithAI.map((item) => (
-            <div key={item.id} className="mb-4 p-3 border border-[#e5e7eb] rounded-lg bg-white">
-              {/* Header */}
-              <div className="flex justify-between items-center mb-2 pb-1 border-b border-[#f3f4f6]">
-                <div className="flex items-center gap-2">
-                  <span className="text-delaware-teal font-bold text-xs">{item.scopeItem}</span>
-                  <span className="text-[#1f2937] font-semibold text-xs">{item.titulo || 'GAP Mapeado'}</span>
-                </div>
-                <div className="flex items-center gap-3 text-[10px]">
-                  {item.aiSugestaoHoras !== undefined && (
-                    <span className="text-[#6b7280]">
-                      IA: <span className="font-bold text-delaware-red">{item.aiSugestaoHoras.toFixed(1)}h</span>
-                      {item.ajusteConfirmado && <span className="ml-1 text-green-600">✓</span>}
-                    </span>
-                  )}
-                  <span className="bg-[#f3f4f6] px-2 py-0.5 rounded">
-                    Total: <span className="font-bold text-delaware-red">{item.total.toFixed(1)}h</span>
-                  </span>
-                </div>
-              </div>
-
-              {/* Análise IA — texto truncado para manter PDF compacto */}
-              <p className="text-[10px] text-[#374151] leading-relaxed">
-                {(item.analiseIA || '').replace(/#{1,6}\s/g, '').replace(/\*\*/g, '').replace(/\*/g, '').replace(/\n+/g, ' ').trim().slice(0, 400)}
-                {(item.analiseIA || '').length > 400 && '…'}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── ESPECIFICAÇÕES FUNCIONAIS ── */}
-      {itemsWithEF.map((item) => (
-        <div key={`ef-${item.id}`} className="pdf-page break-before-page pt-6">
-          <h2 className="text-xl font-bold text-delaware-gray mb-4 border-b-2 border-delaware-teal pb-2">
-            Especificação Funcional — {item.scopeItem}
-          </h2>
-          <p className="text-sm font-semibold text-[#4b5563] mb-4">{item.titulo || item.descricao.substring(0, 80)}</p>
-          <div className="prose prose-sm max-w-none text-[#374151]">
-            <ReactMarkdown>{item.especificacaoFuncional || ''}</ReactMarkdown>
-          </div>
-        </div>
-      ))}
-
-      {/* ── ESPECIFICAÇÕES TÉCNICAS ── */}
-      {itemsWithET.map((item) => (
-        <div key={`et-${item.id}`} className="pdf-page break-before-page pt-6">
-          <h2 className="text-xl font-bold text-delaware-gray mb-4 border-b-2 border-delaware-red pb-2">
-            Especificação Técnica — {item.scopeItem}
-          </h2>
-          <p className="text-sm font-semibold text-[#4b5563] mb-4">{item.titulo || item.descricao.substring(0, 80)}</p>
-          <div className="prose prose-sm max-w-none text-[#374151]">
-            <ReactMarkdown>{item.especificacaoTecnica || ''}</ReactMarkdown>
-          </div>
-        </div>
-      ))}
-
-      {/* Placeholder when no AI data */}
-      {itemsWithAI.length === 0 && itemsWithEF.length === 0 && itemsWithET.length === 0 && (
-        <div className="pdf-page pt-6">
-          <div className="text-center p-8 bg-[#f9fafb] text-[#6b7280] rounded border border-[#e5e7eb]">
-            Clique em "Analisar com IA" no sistema antes de gerar o PDF para preencher esta seção.
+          <div style={{ marginTop: 16, padding: 12, background: '#f0f9f9', border: '1px solid #a7f3d0', borderRadius: 6, fontSize: 9, color: '#065f46' }}>
+            <strong>Nota:</strong> As Especificações Funcionais (EF) e Técnicas (ET) geradas estão disponíveis no sistema para consulta e edição individual.
+            Para exportar specs específicas, acesse o item e clique no ícone de documento.
           </div>
         </div>
       )}

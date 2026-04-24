@@ -805,26 +805,17 @@ export default function App() {
     const opt = {
       margin: [10, 10, 10, 10],
       filename: `Estimativa_GAPs_${projectInfo.nome || 'SAP'}.pdf`,
-      image: { type: 'jpeg', quality: 0.92 },
+      image: { type: 'jpeg', quality: 0.90 },
       html2canvas: {
-        scale: 1.5,
+        scale: 1,
         useCORS: true,
+        allowTaint: true,
         logging: false,
         scrollX: 0,
         scrollY: 0,
         windowWidth: 794,
-        onclone: (clonedDoc: Document) => {
-          const els = clonedDoc.getElementsByTagName('*');
-          for (let i = 0; i < els.length; i++) {
-            const el = els[i] as HTMLElement;
-            const style = window.getComputedStyle(el);
-            if (style.backgroundColor.includes('oklch') || style.backgroundColor.includes('oklab')) el.style.backgroundColor = '#ffffff';
-            if (style.color.includes('oklch') || style.color.includes('oklab')) el.style.color = '#000000';
-          }
-        }
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      // Apenas CSS — 'legacy' adiciona páginas extras em branco
       pagebreak: { mode: ['css'], before: '.break-before-page', after: '.break-after-page' }
     };
 
