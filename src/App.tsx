@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { flushSync } from 'react-dom';
 import { Plus, Save, Settings as SettingsIcon, Calculator, Brain, Trash2, Download, X, Sparkles, Upload, FileUp, LayoutDashboard, Calendar as CalendarIcon, Users, BarChart as BarChartIcon, FileText, Cpu, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EstimationItem, Metric, ProjectInfo, Complexity } from './types';
@@ -10,6 +11,7 @@ import * as XLSX from 'xlsx';
 import html2pdf from 'html2pdf.js';
 import JSZip from 'jszip';
 import { ReportTemplate } from './components/ReportTemplate';
+import { GapDetailTemplate } from './components/GapDetailTemplate';
 
 import { 
   PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend, 
@@ -118,6 +120,8 @@ export default function App() {
   });
   const [isGeneratingDoc, setIsGeneratingDoc] = useState(false);
   const [loadingItems, setLoadingItems] = useState<Set<string>>(new Set());
+  const [gapPdfRenderItem, setGapPdfRenderItem] = useState<EstimationItem | null>(null);
+  const [isGeneratingGapPDF, setIsGeneratingGapPDF] = useState(false);
 
   useEffect(() => {
     const checkKey = async () => {
@@ -861,6 +865,83 @@ export default function App() {
     a.click();
     URL.revokeObjectURL(url);
     alert(`✅ ZIP gerado com ${withSpecs.length} GAPs (${withSpecs.filter(i=>i.especificacaoFuncional).length} EFs + ${withSpecs.filter(i=>i.especificacaoTecnica).length} ETs)`);
+  };
+
+  // ── PDF individual por GAP ──────────────────────────────────────────────────
+  const gapPdfOptions = {
+    margin: [10, 10, 10, 10],
+    filename: 'gap.pdf',
+    image: { type: 'jpeg', quality: 0.88 },
+    html2canvas: { scale: 1, useCORS: true, allowTaint: true, logging: false, scrollX: 0, scrollY: 0, windowWidth: 794 },
+    jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
+    pagebreak: { mode: ['css', 'avoid-all'] },
+  };
+
+  const generateGapPDFBlob = async (item: EstimationItem): Promise<Blob> => {
+    flushSync(() => setGapPdfRenderItem(item));
+
+    const wrapper = document.getElementById('gap-pdf-wrapper');
+    if (wrapper) { wrapper.style.position = 'fixed'; wrapper.style.left = '0'; wrapper.style.top = '0'; wrapper.style.zIndex = '1'; }
+    await new Promise(r => setTimeout(r, 300));
+
+    const element = document.getElementById('gap-pdf-content');
+    if (!element) throw new Error('gap-pdf-content not found');
+
+    const blob: Blob = await html2pdf().set(gapPdfOptions).from(element).output('blob');
+
+    if (wrapper) { wrapper.style.position = 'absolute'; wrapper.style.left = '-9999px'; wrapper.style.zIndex = ''; }
+    return blob;
+  };
+
+  const handleExportSingleGapPDF = async (item: EstimationItem) => {
+    setIsGeneratingGapPDF(true);
+    try {
+      const blob = await generateGapPDFBlob(item);
+      const safeName = (item.scopeItem || item.id).replace(/[^a-z0-9_\-]/gi, '_');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `GAP_${safeName}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setIsGeneratingGapPDF(false);
+      flushSync(() => setGapPdfRenderItem(null));
+    }
+  };
+
+  const handleExportAllGapsPDFZip = async () => {
+    if (items.length === 0) { alert('Nenhum GAP para exportar.'); return; }
+    if (!window.confirm(`Gerar PDFs individuais para ${items.length} GAP(s) e empacotar em ZIP?\nIsso pode levar alguns minutos.`)) return;
+
+    setIsGeneratingGapPDF(true);
+    setAnalysisProgress({ current: 0, total: items.length, currentTitle: '' });
+
+    const zip = new JSZip();
+    try {
+      for (let i = 0; i < items.length; i++) {
+        const item = items[i];
+        setAnalysisProgress({ current: i + 1, total: items.length, currentTitle: item.titulo || item.scopeItem });
+        const blob = await generateGapPDFBlob(item);
+        const safeName = (item.scopeItem || item.id).replace(/[^a-z0-9_\-]/gi, '_');
+        zip.file(`${String(i + 1).padStart(3, '0')}_${safeName}.pdf`, blob);
+      }
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `GAPs_PDFs_${projectInfo.nome || 'export'}_${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      URL.revokeObjectURL(url);
+      alert(`✅ ZIP gerado com ${items.length} PDFs!`);
+    } catch (err) {
+      console.error(err);
+      alert('❌ Erro ao gerar PDFs. Verifique o console.');
+    } finally {
+      setIsGeneratingGapPDF(false);
+      flushSync(() => setGapPdfRenderItem(null));
+      setAnalysisProgress({ current: 0, total: 0, currentTitle: '' });
+    }
   };
 
   const handleExportPDF = async () => {
@@ -1767,6 +1848,17 @@ export default function App() {
                       Importar Backup (JSON)
                     </button>
                     <button
+                      onClick={handleExportAllGapsPDFZip}
+                      disabled={isGeneratingGapPDF || items.length === 0}
+                      className="flex items-center gap-1 bg-[#1e3a5f] text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-[#152a45] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FileText size={14} />
+                      {isGeneratingGapPDF ? `Gerando PDFs... (${analysisProgress.current}/${analysisProgress.total})` : 'Gerar PDFs por GAP (ZIP)'}
+                      {!isGeneratingGapPDF && items.length > 0 && (
+                        <span className="ml-1 bg-white/20 text-white text-xs rounded-full px-1.5 py-0.5">{items.length}</span>
+                      )}
+                    </button>
+                    <button
                       onClick={handleExportSpecsZip}
                       disabled={items.filter(i => i.especificacaoFuncional || i.especificacaoTecnica).length === 0}
                       className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -2359,7 +2451,17 @@ export default function App() {
               </div>
 
               <div className="px-6 py-4 border-t border-gray-200 flex justify-end gap-3 bg-gray-50">
-                <button 
+                {items.find(i => i.id === editingItem.id) && (
+                  <button
+                    disabled={isGeneratingGapPDF}
+                    onClick={() => handleExportSingleGapPDF(editingItem)}
+                    className="flex items-center gap-1 px-3 py-2 border border-[#0d7a79] text-[#0d7a79] rounded-md text-sm font-medium hover:bg-[#f0f9f9] disabled:opacity-50 mr-auto"
+                  >
+                    <FileText size={14} />
+                    {isGeneratingGapPDF ? 'Gerando...' : 'Exportar PDF'}
+                  </button>
+                )}
+                <button
                   onClick={() => setIsModalOpen(false)}
                   className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-100"
                 >
@@ -2379,7 +2481,7 @@ export default function App() {
 
       {/* Progress Overlay para Análise / EF / ET em Lote */}
       <AnimatePresence>
-        {(isAnalyzing || isGeneratingDoc) && analysisProgress.total > 1 && (
+        {(isAnalyzing || isGeneratingDoc || isGeneratingGapPDF) && analysisProgress.total > 1 && (
           <motion.div
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -2441,6 +2543,16 @@ export default function App() {
           aiAnalysis={aiAnalysis} 
           totalHours={totalHours} 
         />
+      </div>
+
+      {/* Hidden GAP Detail Template - for per-GAP PDF generation */}
+      <div
+        id="gap-pdf-wrapper"
+        style={{ position: 'absolute', top: 0, left: '-9999px', width: '210mm', pointerEvents: 'none', background: '#fff' }}
+      >
+        {gapPdfRenderItem && (
+          <GapDetailTemplate item={gapPdfRenderItem} projectInfo={projectInfo} />
+        )}
       </div>
 
       {/* Documentation Modal */}
