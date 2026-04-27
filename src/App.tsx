@@ -1254,7 +1254,7 @@ export default function App() {
                           <th className="px-4 py-4 text-center font-bold text-gray-700">Total</th>
                           <th className="px-4 py-4 text-center text-delaware-red">Sugestão IA</th>
                           <th className="px-4 py-4 text-center text-delaware-teal">Ext (h)</th>
-                          <th className="px-4 py-4 text-center">Ações</th>
+                          <th className="px-4 py-4 text-center sticky right-0 bg-gray-50 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.08)] z-10">Ações</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100">
@@ -1323,7 +1323,7 @@ export default function App() {
                                   </div>
                                 ) : '-'}
                               </td>
-                              <td className="px-4 py-4 text-center">
+                              <td className="px-4 py-4 text-center sticky right-0 bg-white group-hover:bg-gray-50 shadow-[-4px_0_6px_-2px_rgba(0,0,0,0.06)] z-10">
                                 <div className="flex items-center justify-center gap-2">
                                   {loadingItems.has(item.id) ? (
                                     <div className="flex items-center gap-1.5 text-delaware-teal font-medium animate-bounce text-xs">
@@ -1377,13 +1377,13 @@ export default function App() {
                             </tr>
                             {item.analiseIA && (
                               <tr className="bg-delaware-red/5">
-                                <td colSpan={15} className="px-6 py-4">
-                                  <div className="border-l-4 border-delaware-red/40 pl-4 py-2">
+                                <td colSpan={18} className="px-6 py-3" style={{ maxWidth: 0 }}>
+                                  <div className="border-l-4 border-delaware-red/40 pl-4 py-2" style={{ maxWidth: '100%', overflow: 'hidden' }}>
                                     <div className="flex items-center gap-2 text-delaware-red font-medium mb-2">
                                       <Brain size={16} />
                                       Análise IA & Clean Core
                                     </div>
-                                    <div className="prose prose-sm max-w-none text-gray-700">
+                                    <div className="prose prose-sm max-w-none text-gray-700" style={{ wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                                       <ReactMarkdown>{item.analiseIA}</ReactMarkdown>
                                     </div>
                                   </div>
