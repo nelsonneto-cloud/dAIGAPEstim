@@ -8,6 +8,7 @@ import ReactMarkdown from 'react-markdown';
 import * as XLSX from 'xlsx';
 // @ts-ignore
 import html2pdf from 'html2pdf.js';
+import JSZip from 'jszip';
 import { ReportTemplate } from './components/ReportTemplate';
 
 import { 
@@ -30,6 +31,7 @@ const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 2, baseDelay
 export default function App() {
   const [activeTab, setActiveTab] = useState<'calculator' | 'settings' | 'dashboard'>('calculator');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const backupInputRef = useRef<HTMLInputElement>(null);
   const [isUploading, setIsUploading] = useState(false);
   const [metrics, setMetrics] = useState<Metric[]>(() => {
     const saved = localStorage.getItem('sap_metrics');
@@ -779,6 +781,88 @@ export default function App() {
     document.body.removeChild(link);
   };
 
+  // ── Backup completo → JSON ──────────────────────────────────────────────────
+  const handleExportBackup = () => {
+    const backup = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      projectInfo,
+      items,
+      metrics,
+    };
+    const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `backup_${projectInfo.nome || 'dAIGAPEstim'}_${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleImportBackup = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const backup = JSON.parse(ev.target?.result as string);
+        if (!backup.items || !Array.isArray(backup.items)) throw new Error('Arquivo inválido');
+        if (backup.projectInfo) setProjectInfo(backup.projectInfo);
+        if (backup.metrics && Array.isArray(backup.metrics)) setMetrics(backup.metrics);
+        setItems(backup.items);
+        alert(`✅ Backup restaurado com sucesso!\n${backup.items.length} GAPs carregados.`);
+      } catch (err) {
+        alert('❌ Erro ao importar backup. Verifique se o arquivo é válido.');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  // ── Export EF/ET em lote → ZIP ──────────────────────────────────────────────
+  const handleExportSpecsZip = async () => {
+    const withSpecs = items.filter(i => i.especificacaoFuncional || i.especificacaoTecnica);
+    if (withSpecs.length === 0) {
+      alert('Nenhum GAP tem EF ou ET gerada ainda.');
+      return;
+    }
+    const zip = new JSZip();
+    const folder = zip.folder('especificacoes') as JSZip;
+
+    for (const item of withSpecs) {
+      const safeName = (item.scopeItem || item.id).replace(/[^a-z0-9_\-]/gi, '_');
+      const header = `# ${item.titulo || item.scopeItem}\n**Scope:** ${item.scopeItem} | **Tecnologia:** ${item.tecnologia} | **Complexidade:** ${item.complexidade}\n\n---\n\n`;
+      if (item.especificacaoFuncional) {
+        folder.file(`${safeName}_EF.md`, header + item.especificacaoFuncional);
+      }
+      if (item.especificacaoTecnica) {
+        folder.file(`${safeName}_ET.md`, header + item.especificacaoTecnica);
+      }
+    }
+
+    // Índice
+    const index = [
+      `# Índice de Especificações — ${projectInfo.nome || 'Projeto'}`,
+      `Exportado em: ${new Date().toLocaleString('pt-BR')}`,
+      '',
+      ...withSpecs.map(i =>
+        `- **${i.scopeItem}** — ${i.titulo || i.descricao.substring(0, 60)}` +
+        (i.especificacaoFuncional ? ' [EF]' : '') +
+        (i.especificacaoTecnica ? ' [ET]' : '')
+      )
+    ].join('\n');
+    folder.file('_INDICE.md', index);
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `especificacoes_${projectInfo.nome || 'GAPs'}_${new Date().toISOString().slice(0, 10)}.zip`;
+    a.click();
+    URL.revokeObjectURL(url);
+    alert(`✅ ZIP gerado com ${withSpecs.length} GAPs (${withSpecs.filter(i=>i.especificacaoFuncional).length} EFs + ${withSpecs.filter(i=>i.especificacaoTecnica).length} ETs)`);
+  };
+
   const handleExportPDF = async () => {
     setIsGeneratingPDF(true);
 
@@ -816,7 +900,7 @@ export default function App() {
         windowWidth: 794,
       },
       jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' },
-      pagebreak: { mode: ['css'], before: '.break-before-page', after: '.break-after-page' }
+      pagebreak: { mode: ['css', 'avoid-all'] }
     };
 
     try {
@@ -1655,6 +1739,54 @@ export default function App() {
                       Limpar Dados
                     </button>
                   </div>
+                </div>
+
+                {/* ── Gerenciamento de Dados ── */}
+                <div className="mb-6 p-4 bg-gray-50 rounded-lg border border-gray-200">
+                  <h3 className="text-sm font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <Download size={15} />
+                    Gerenciamento de Dados
+                  </h3>
+                  <p className="text-xs text-gray-500 mb-3">
+                    O backup JSON inclui todos os GAPs com análises de IA, especificações EF/ET, parâmetros de complexidade, fatores de risco e fases não-codificadas.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={handleExportBackup}
+                      disabled={items.length === 0}
+                      className="flex items-center gap-1 bg-[#0d7a79] text-white px-3 py-2 rounded-md text-sm font-medium hover:bg-[#0a6160] disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <Download size={14} />
+                      Exportar Backup (JSON)
+                    </button>
+                    <button
+                      onClick={() => backupInputRef.current?.click()}
+                      className="flex items-center gap-1 bg-white text-[#0d7a79] border border-[#0d7a79] px-3 py-2 rounded-md text-sm font-medium hover:bg-[#f0f9f9]"
+                    >
+                      <Upload size={14} />
+                      Importar Backup (JSON)
+                    </button>
+                    <button
+                      onClick={handleExportSpecsZip}
+                      disabled={items.filter(i => i.especificacaoFuncional || i.especificacaoTecnica).length === 0}
+                      className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-200 px-3 py-2 rounded-md text-sm font-medium hover:bg-blue-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      <FileText size={14} />
+                      Exportar EF/ET em ZIP
+                      {items.filter(i => i.especificacaoFuncional || i.especificacaoTecnica).length > 0 &&
+                        <span className="ml-1 bg-blue-100 text-blue-800 text-xs rounded-full px-1.5 py-0.5">
+                          {items.filter(i => i.especificacaoFuncional || i.especificacaoTecnica).length}
+                        </span>
+                      }
+                    </button>
+                  </div>
+                  <input
+                    ref={backupInputRef}
+                    type="file"
+                    accept=".json"
+                    className="hidden"
+                    onChange={handleImportBackup}
+                  />
                 </div>
 
                 {isAddingNewTipo && (

@@ -103,7 +103,7 @@ export const ReportTemplate: React.FC<ReportTemplateProps> = ({
           </thead>
           <tbody>
             {items.map((item, idx) => (
-              <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb' }}>
+              <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb', pageBreakInside: 'avoid' }}>
                 <td style={{ padding: '4px', border: '1px solid #e5e7eb', textAlign: 'center', color: '#9ca3af' }}>{idx + 1}</td>
                 <td style={{ padding: '4px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 500 }}>{item.scopeItem}</td>
                 <td style={{ padding: '4px', border: '1px solid #e5e7eb', maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
@@ -126,7 +126,7 @@ export const ReportTemplate: React.FC<ReportTemplateProps> = ({
 
       {/* ── ANÁLISES IA ── somente se houver */}
       {withAI.length > 0 && (
-        <div style={{ paddingTop: 24 }}>
+        <div style={{ paddingTop: 24, pageBreakBefore: 'always' }}>
           <h2 style={{ fontSize: 18, fontWeight: 'bold', color: '#374151', borderBottom: '2px solid #0d7a79', paddingBottom: 8, marginBottom: 20 }}>
             2. Análises de Conformidade Clean Core (IA)
           </h2>
@@ -140,7 +140,7 @@ export const ReportTemplate: React.FC<ReportTemplateProps> = ({
             </thead>
             <tbody>
               {withAI.map((item, idx) => (
-                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb', verticalAlign: 'top' }}>
+                <tr key={item.id} style={{ background: idx % 2 === 0 ? '#fff' : '#f9fafb', verticalAlign: 'top', pageBreakInside: 'avoid' }}>
                   <td style={{ padding: '4px', border: '1px solid #e5e7eb', whiteSpace: 'nowrap', fontWeight: 500 }}>{item.scopeItem}</td>
                   <td style={{ padding: '4px', border: '1px solid #e5e7eb', maxWidth: 120, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {item.titulo || item.descricao.substring(0, 35)}
