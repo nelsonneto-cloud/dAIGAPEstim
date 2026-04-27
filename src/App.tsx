@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { flushSync } from 'react-dom';
+import { AuthenticatedTemplate, UnauthenticatedTemplate, useMsal } from '@azure/msal-react';
+import { LoginScreen } from './components/LoginScreen';
 import { Plus, Save, Settings as SettingsIcon, Calculator, Brain, Trash2, Download, X, Sparkles, Upload, FileUp, LayoutDashboard, Calendar as CalendarIcon, Users, BarChart as BarChartIcon, FileText, Cpu, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { EstimationItem, Metric, ProjectInfo, Complexity } from './types';
@@ -31,6 +33,9 @@ const retryWithBackoff = async <T,>(fn: () => Promise<T>, retries = 2, baseDelay
 };
 
 export default function App() {
+  const { instance, accounts } = useMsal();
+  const activeAccount = accounts[0];
+
   const [activeTab, setActiveTab] = useState<'calculator' | 'settings' | 'dashboard'>('calculator');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const backupInputRef = useRef<HTMLInputElement>(null);
@@ -1033,6 +1038,11 @@ export default function App() {
   filteredMetrics.sort((a, b) => complexityOrder[a.complexidade] - complexityOrder[b.complexidade]);
 
   return (
+    <>
+      <UnauthenticatedTemplate>
+        <LoginScreen />
+      </UnauthenticatedTemplate>
+      <AuthenticatedTemplate>
     <div className="min-h-screen bg-white text-delaware-gray font-sans flex flex-col">
       {/* Header */}
       <header className="bg-delaware-gray text-white px-8 py-6 shadow-md">
@@ -1042,7 +1052,7 @@ export default function App() {
               <h1 className="text-3xl font-bold tracking-tight mb-1">Calculadora de Estimativas SAP S/4HANA</h1>
               <p className="text-sm text-white/80">Estimativa de esforço para desenvolvimento de GAPs | delaware</p>
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-4 items-start">
               <div className="bg-white/10 rounded-lg p-4 text-center min-w-[100px] border border-white/10">
                 <div className="text-3xl font-bold">{items.length}</div>
                 <div className="text-xs text-white/70 uppercase tracking-wider mt-1">GAPs</div>
@@ -1051,6 +1061,19 @@ export default function App() {
                 <div className="text-3xl font-bold">{totalHours.toFixed(1)}</div>
                 <div className="text-xs text-white/70 uppercase tracking-wider mt-1">Horas Total</div>
               </div>
+              {activeAccount && (
+                <div className="flex flex-col items-end gap-1 pt-1">
+                  <div className="text-xs text-white/60">
+                    {activeAccount.name || activeAccount.username}
+                  </div>
+                  <button
+                    onClick={() => instance.logoutRedirect({ postLogoutRedirectUri: window.location.origin })}
+                    className="text-xs text-white/50 hover:text-white/90 border border-white/20 px-2 py-1 rounded transition-colors"
+                  >
+                    Sair
+                  </button>
+                </div>
+              )}
             </div>
           </div>
           
@@ -2635,5 +2658,7 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
+      </AuthenticatedTemplate>
+    </>
   );
 }
