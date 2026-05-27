@@ -1038,11 +1038,6 @@ export default function App() {
   filteredMetrics.sort((a, b) => complexityOrder[a.complexidade] - complexityOrder[b.complexidade]);
 
   return (
-    <>
-      <UnauthenticatedTemplate>
-        <LoginScreen />
-      </UnauthenticatedTemplate>
-      <AuthenticatedTemplate>
     <div className="min-h-screen bg-white text-delaware-gray font-sans flex flex-col">
       {/* Header */}
       <header className="bg-delaware-gray text-white px-8 py-6 shadow-md">
@@ -2658,7 +2653,5 @@ export default function App() {
         )}
       </AnimatePresence>
     </div>
-      </AuthenticatedTemplate>
-    </>
   );
 }

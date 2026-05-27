@@ -21,8 +21,20 @@ export const LoginScreen: React.FC = () => {
       <div className="bg-white rounded-2xl shadow-2xl p-10 w-full max-w-md text-center">
 
         {/* Logo */}
-        <div className="inline-flex items-center justify-center bg-[#0d7a79] px-6 py-3 rounded-lg mb-8">
-          <span className="text-white font-bold text-2xl tracking-widest">delaware</span>
+        <div className="flex justify-center mb-8">
+          <img
+            src="/delaware-logo.png"
+            alt="delaware"
+            className="h-16 object-contain"
+            onError={e => {
+              // fallback to text logo if image not found
+              (e.target as HTMLImageElement).style.display = 'none';
+              (e.target as HTMLImageElement).nextElementSibling?.classList.remove('hidden');
+            }}
+          />
+          <div className="hidden bg-[#0d7a79] px-6 py-3 rounded-lg">
+            <span className="text-white font-bold text-2xl tracking-widest">delaware</span>
+          </div>
         </div>
 
         <h1 className="text-2xl font-bold text-gray-800 mb-1">dAIGAPEstim</h1>
